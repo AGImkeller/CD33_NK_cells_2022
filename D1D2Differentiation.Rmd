@@ -1,0 +1,213 @@
+---
+title: "CD33 CAR NK: After Coculture Differentiation of D1 & D2""
+author: "Ahmad Al Ajami (AG Imkeller | KGU)"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    keep_md: false
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=TRUE, message=FALSE, cache = FALSE}
+suppressPackageStartupMessages({
+library(tidyverse)
+library(scran)
+library(scater)
+library(patchwork)
+})
+```
+
+Reading the data 
+
+```{r}
+d1_a <- readRDS("intermediate_files/D1/sce_donor1.Rds")
+sce_counts <- rbind(counts(d1_a), counts(altExp(d1_a)))
+sce_logcounts <- rbind(logcounts(d1_a), logcounts(altExp(d1_a)))
+sce_d1_a <- SingleCellExperiment(assays = list(counts = sce_counts, logcounts = sce_logcounts), colData = colData(d1_a))
+
+d2_a <- readRDS("intermediate_files/D2/sce_donor2.Rds")
+sce_counts <- rbind(counts(d2_a), counts(altExp(d2_a)))
+sce_logcounts <- rbind(logcounts(d2_a), logcounts(altExp(d2_a)))
+sce_d2_a <- SingleCellExperiment(assays = list(counts = sce_counts, logcounts = sce_logcounts), colData = colData(d2_a))
+```
+
+```{r}
+sce_d1_a$condition <- gsub("NT", "NT-NK", sce_d1_a$condition)
+sce_d1_a$condition <- gsub("CAR", "CAR33-NK", sce_d1_a$condition)
+sce_d1_a$condition <- gsub("KO", "KLRC1.ko-NK", sce_d1_a$condition)
+sce_d1_a$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce_d1_a$condition)
+sce_d1_a$condition <- factor(sce_d1_a$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
+
+sce_d2_a$condition <- gsub("NT", "NT-NK", sce_d2_a$condition)
+sce_d2_a$condition <- gsub("CAR", "CAR33-NK", sce_d2_a$condition)
+sce_d2_a$condition <- gsub("KO", "KLRC1.ko-NK", sce_d2_a$condition)
+sce_d2_a$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce_d2_a$condition)
+sce_d2_a$condition <- factor(sce_d2_a$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
+```
+
+# Donor 1
+
+```{r}
+set.seed(42L)
+sce_d1 <- sce_d1_a[,colData(sce_d1_a)$group == "AfterCoc"]
+
+sce_d1 <- runPCA(sce_d1, ncomponents=20)
+sce_d1 <- runTSNE(sce_d1, dimred="PCA")
+```
+
+```{r}
+snn_graph <- buildSNNGraph(sce_d1, k=50, use.dimred='PCA')
+igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
+sce_d1$igraph_lbls <- as.factor(igraph_clusters)
+```
+
+```{r}
+p1 <- plotTSNE(sce_d1, colour_by="igraph_lbls", other_fields = c("condition")) + 
+  facet_wrap(~condition) + 
+  scale_color_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon")) +
+  theme_bw() + 
+  theme(strip.text.x = element_text(size = 12), legend.position="bottom", legend.text = element_text(size=10)) +
+  guides(colour = guide_legend(nrow = 1)) +
+  labs(color = "cluster")
+p1
+ggsave("plot6.png", p1, height = 4, width = 4)
+```
+
+```{r}
+p2 <- as.data.frame(colData(sce_d1)) %>%
+  group_by(condition, igraph_lbls) %>%
+  summarize(n = n()) %>%
+  group_by(condition) %>%
+  mutate(freq = n / sum(n)) %>%
+  ggplot(aes(x = igraph_lbls, y=freq, fill = condition)) +
+  geom_col(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
+  labs(x = "cluster", y = "condition relative abundance")+ 
+  theme_bw() +
+  theme(legend.position="bottom", legend.text = element_text(size=10)) +
+  guides(colour = guide_legend(nrow = 1))
+p2
+ggsave("plot7.png", p2, height = 4, width = 6)
+```
+
+```{r}
+m <- scoreMarkers(sce_d1, groups = colData(sce_d1)$igraph_lbls)
+```
+
+```{r}
+as.data.frame(m[1]) %>%
+    arrange(desc(mean.AUC))
+```
+
+```{r}
+as.data.frame(m[2]) %>%
+    arrange(desc(mean.AUC))
+```
+
+# Donor 2
+
+```{r}
+set.seed(42L)
+sce_d2 <- sce_d2_a[,colData(sce_d2_a)$group == "AfterCoc"]
+
+sce_d2 <- runPCA(sce_d2, ncomponents=20)
+sce_d2 <- runTSNE(sce_d2, dimred="PCA")
+```
+
+```{r}
+snn_graph <- buildSNNGraph(sce_d2, k=50, use.dimred='PCA')
+igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
+sce_d2$igraph_lbls <- as.factor(igraph_clusters)
+```
+
+```{r}
+p3 <- plotTSNE(sce_d2, colour_by="igraph_lbls", other_fields = c("condition")) +
+  facet_wrap(~condition) + 
+  scale_color_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon")) +
+  theme_bw() + 
+  theme(legend.position="bottom") +
+  guides(colour = guide_legend(nrow = 1)) +
+  labs(color = "cluster")
+p3
+```
+
+```{r}
+p4 <- as.data.frame(colData(sce_d2)) %>%
+  group_by(condition, igraph_lbls) %>%
+  summarize(n = n()) %>%
+  mutate(freq = n / sum(n)) %>%
+  ggplot(aes(x = igraph_lbls, y=freq, fill = condition)) +
+  geom_col(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("gray", "blue", "orange", "red")) + 
+  labs(x = "cluster", y = "condition relative abundance")+ 
+  theme(legend.position="bottom") +
+  guides(colour = guide_legend(nrow = 1))
+p4
+```
+
+```{r}
+m2 <- scoreMarkers(sce_d2, groups = colData(sce_d2)$igraph_lbls)
+```
+
+```{r}
+as.data.frame(m2[1]) %>%
+    arrange(desc(mean.AUC))
+```
+
+```{r}
+as.data.frame(m[1]) %>%
+    arrange(desc(mean.AUC))
+```
+
+```{r}
+a <- c("TYMS","CCL4","CSF2","XCL1","IFNG","TOP2A","CCL3","MYC","HMGB2","AURKB","GZMA", "FCGR3A", "TNF", "IL3")
+p5 <- plotDots(sce_d1, features = a, group = "igraph_lbls", color = c("gray", "yellow", "orange", "red", "darkred", "purple", "lightblue", "blue")) +
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text=element_text(size=7))
+p5
+```
+
+```{r}
+p6 <- plotDots(sce_d2, features = a, group = "igraph_lbls", color = c("gray", "yellow", "orange", "red", "darkred", "purple", "lightblue", "blue")) +
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+p6
+```
+
+```{r}
+p7 <- plotExpression(sce_d1, c("IFNG", "TOP2A", "AURKB"), x = "condition", ncol = 3, colour_by = "condition") + 
+  theme_bw() + 
+  scale_color_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
+  ylim(0, 8) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), strip.text.x = element_text(size = 12)) + 
+  labs(color = "condition") 
+
+p8 <- plotExpression(sce_d1_a[,colData(sce_d1_a)$group == "BeforeCoc"], features = c("IFNG", "TOP2A", "AURKB"), x = "condition", ncol = 3, colour_by = "condition") + 
+  theme_bw() + 
+  scale_color_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
+  ylim(0, 8) +
+  theme(axis.text.x=element_blank(), axis.title.x=element_blank(), axis.title.y=element_blank(), strip.text.x = element_text(size = 12)) +
+  labs(color = "condition") 
+ 
+p9 <- p8 + 
+  p7 +
+  plot_layout(guides = "collect", ncol = 1, heights = c(1,1)) &
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=10))
+p9
+ggsave("plot8.png", p9, width = 6, height = 6)
+```
+
+# Session
+
+```{r sessionInfo, cache = 0}
+date()
+sessionInfo()
+
+knitr::knit_exit()
+```
+
