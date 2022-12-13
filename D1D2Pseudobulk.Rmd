@@ -1,0 +1,865 @@
+---
+title: "CD33 CAR NK: Pseudobulk Analysis of D1 & D2"
+author: "Ahmad Al Ajami (AG Imkeller | KGU)"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    keep_md: false
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=TRUE, message=FALSE, cache = FALSE}
+suppressPackageStartupMessages({
+library(tidyverse)
+library(scran)
+library(scater)
+library(patchwork)
+library(scDblFinder)
+library(cowplot)
+library(pheatmap)
+library(edgeR)
+library(clusterProfiler)
+library(msigdbr)
+library(gplots)
+library(ggrepel)
+library(ggplotify)
+library(CellMixS)
+library(batchelor)
+library(tibble)
+library(magrittr)
+})
+```
+
+Loading data
+
+```{r}
+# CITE-seq
+
+sce_d1 <- readRDS("intermediate_files/D1/sce_donor1.Rds")
+sce_d2 <- readRDS("intermediate_files/D2/sce_donor2.Rds")
+
+# making sure D1 & D2 look exactly the same
+sce_d1$donor <- "D1"
+colData(sce_d1) <- colData(sce_d1)[, !names(colData(sce_d1)) %in% "batch"]
+altExp(sce_d1)$condition <- sce_d1$condition
+altExp(sce_d2) <- altExp(sce_d2)[intersect(rownames(altExp(sce_d2)), rownames(altExp(sce_d1))), ]
+
+# merging D1 & D2
+sce_split <- cbind(sce_d1, sce_d2)
+sce_split <- logNormCounts(sce_split) # RNA normalization
+clr_norm <- function(x) {
+  return(log1p(x = x / (exp(x = sum(log1p(x = x[x > 0]), na.rm = TRUE) / length(x = x)))))
+}
+logcounts(altExp(sce_split)) <- apply(counts(altExp(sce_split)), 2, clr_norm) # ADT normalization
+
+# merging ADT & RNA of the merged sce representing D1 & D2
+sce_counts <- rbind(counts(sce_split), counts(altExp(sce_split)))
+sce_logcounts <- rbind(logcounts(sce_split), logcounts(altExp(sce_split)))
+sce_combined <- SingleCellExperiment(assays = list(counts = sce_counts, logcounts = sce_logcounts), colData = colData(sce_split))
+
+# changing ADT names
+rownames(sce_combined) <- gsub("TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", "TCR_alpha_beta.TRA_TRB.AHS0078.pAbO", rownames(sce_combined))
+rownames(sce_combined) <- gsub("TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "TCR_gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", rownames(sce_combined))
+
+# changing condition names upon request from Nawid
+sce_combined$condition <- gsub("NT", "NT-NK", sce_combined$condition)
+sce_combined$condition <- gsub("CAR", "CAR33-NK", sce_combined$condition)
+sce_combined$condition <- gsub("KO", "KLRC1.ko-NK", sce_combined$condition)
+sce_combined$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce_combined$condition)
+sce_combined$condition <- factor(sce_combined$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
+sce_combined$group <- factor(sce_combined$group, levels = c("BeforeCoc", "AfterCoc"))
+```
+
+# Effect of Coculture
+
+## Pseudobulk
+
+### RNA
+
+```{r}
+rowData(sce_combined)$Type <- ifelse(grepl("abo", rownames(sce_combined), ignore.case = TRUE), "Antibody Capture", "Gene Expression") # 'Type' is either gene or antibody
+sce <- splitAltExps(sce_combined, rowData(sce_combined)$Type) # splitting ADT from RNA
+rownames(altExp(sce)) <- gsub("\\..*", "", rownames(altExp(sce)))
+```
+
+```{r, message=FALSE}
+summed.rna <- aggregateAcrossCells(sce,
+                                   id=colData(sce)[, c("condition", "group")])
+
+y <- DGEList(counts(summed.rna), samples=colData(summed.rna))
+y <- calcNormFactors(y)
+colnames(y) <- paste(y$samples$condition, y$samples$group, sep="_")
+y$samples
+
+plotMDS(cpm(y, log=TRUE))
+
+design <- model.matrix(~ group + CAR + KO + CAR:KO, y$samples)
+
+y <- estimateDisp(y, design)
+summary(y$trended.dispersion)
+fit <- glmQLFit(y, design, robust=TRUE)
+```
+
+```{r}
+pseudo_bulk_rna <- function(fit, effect, markers){
+  datatable.sig <- function(sig.table){
+    DT::datatable(sig.table,
+                  class = 'compact stripe hower',
+                  extensions = "Buttons",
+                  options = list(
+                    dom = "Bfrtip",
+                    scrollX = TRUE,
+                    paging = TRUE,
+                    searching = TRUE,
+                    info = TRUE,
+                    ordering = TRUE,
+                    buttons = c("csv", "excel"),
+                    columnDefs = list(list(className = 'dt-center', targets = 0:5))), rownames = TRUE)
+  }
+  
+  all.tags.rna <- function(tags.res, tags.sig, markers){
+    tags <- topTags(tags.res, n=Inf)
+    tags <- tags$table
+    tags$significance <- "NO"
+    tags$significance[which(rownames(tags) %in% rownames(tags.res)[which(dt > 0)])] <- "UP"
+    tags$significance[which(rownames(tags) %in% rownames(tags.res)[which(dt < 0)])] <- "DOWN"
+    tags$label <- NA
+    if(length(markers) == 0){
+      top.tags <- slice_max(tags.sig$table, order_by = logFC, n=5) %>% rownames
+      tail.tags <- slice_min(tags.sig$table, order_by = logFC, n=5) %>% rownames
+      lbls <- c(top.tags, tail.tags)
+      tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+      } else if(length(markers) > 0){
+        lbls <- markers
+        tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+        }
+    return(list(tags, lbls))
+  }
+  
+  volcano.sig.rna <- function(tags){
+    p <- ggplot(tags, aes(x = logFC, y = -log10(FDR), col = significance, label = label)) +
+      geom_point() +
+      theme_minimal() +
+      geom_text_repel(size = 3, box.padding = 0.5, max.overlaps = Inf) +
+      scale_color_manual(values = c("blue", "black", "red")) +
+      geom_vline(xintercept=c(-log2(1.2), log2(1.2)), col="red") +
+      geom_hline(yintercept=-log10(0.05), col="red")
+    return(p)
+  }
+  
+  if(effect == "CAR"){
+    res <- glmTreat(fit, contrast = c(0,0,1,0,0), lfc = log2(1.2))
+    } else if(effect == "KO"){
+      res <- glmTreat(fit, contrast = c(0,0,0,1,0), lfc = log2(1.2))
+      } else if(effect == "CAR-KO"){
+        res <- glmTreat(fit, contrast = c(0,0,0,0,1), lfc = log2(1.2))
+      } else if(effect == "group"){
+        res <- glmTreat(fit, contrast = c(0,1,0,0,0), lfc = log2(1.2))
+      }
+  
+  dt <- decideTests(res)
+  dt.summary <- summary(dt)
+  rna.sig <- topTags(res, n=Inf)[rownames(res)[which(dt[,1]!=0)], ]
+  dt.sig <- datatable.sig(rna.sig$table)
+  effect.rna <- all.tags.rna(res, rna.sig, markers)
+  p1 <- volcano.sig.rna(effect.rna[[1]])
+  down <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "DOWN"]
+  down <- down[!is.na(down)]
+  p4 <- plotDots(sce, features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  up <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "UP"]
+  up <- up[!is.na(up)]
+  p5 <- plotDots(sce, features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  return(list(dt.summary, dt.sig, p1, p4, p5, effect.rna))
+}
+```
+
+```{r, warning=FALSE, fig.show='hide'}
+coculture_effect_rna <- pseudo_bulk_rna(fit = fit, effect = "group", markers = c("ITGB2", "ITGAX", "FCGR3A", "CSF2", "CCL3", "CCL4", "TNF", "DUSP2", "DUSP4", "IL3", "IL1RN", "TNFSF8", "CD160"))
+```
+
+```{r}
+coculture_effect_rna[[1]]
+coculture_effect_rna[[2]]
+```
+
+```{r}
+p1 <- coculture_effect_rna[[3]]
+p1
+```
+
+```{r, fig.width=10, fig.height=5}
+p2 <- plot_grid(coculture_effect_rna[[4]] , coculture_effect_rna[[5]], ncol = 2, align = "hv")
+p2
+```
+
+### ADT
+
+```{r}
+rownames(altExp(sce)) <- gsub(".AH.*", "", rownames(altExp(sce)))
+
+summed.adt <- aggregateAcrossCells(altExp(sce),
+                                   id=colData(sce)[, c("condition", "group")])
+
+design <- model.matrix(~ group + CAR + KO + CAR:KO, colData(summed.rna))
+par(mfrow=c(1,2))
+v <- voom(counts(summed.adt), design, plot=TRUE)
+v
+vfit <- lmFit(v, design)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+
+tfit <- treat(vfit, lfc=log2(1.05))
+```
+
+```{r}
+pseudo_bulk_adt <- function(fit, effect, effect.coef, markers){
+  datatable.sig <- function(sig.table){
+    DT::datatable(sig.table,
+                  class = 'compact stripe hower',
+                  extensions = "Buttons",
+                  options = list(
+                    dom = "Bfrtip",
+                    scrollX = TRUE,
+                    paging = TRUE,
+                    searching = TRUE,
+                    info = TRUE,
+                    ordering = TRUE,
+                    buttons = c("csv", "excel"),
+                    columnDefs = list(list(className = 'dt-center', targets = 0:5))), rownames = TRUE)
+  }
+  
+  all.tags.adt <- function(coef, markers){
+    tags <- topTreat(fit, coef=coef, n=Inf)
+    tags$significance <- "NO"
+    tags$significance[which(rownames(tags) %in% rownames(fit)[which(dt[, coef] > 0)])] <- "UP"
+    tags$significance[which(rownames(tags) %in% rownames(fit)[which(dt[, coef] < 0)])] <- "DOWN"
+    tags$label <- NA
+    if(length(markers) == 0){
+      top.tags <- slice_max(tags[tags$significance != "NO", ], order_by = logFC, n=5) %>% rownames
+      tail.tags <- slice_min(tags[tags$significance != "NO", ], order_by = logFC, n=5) %>% rownames
+      lbls <- c(top.tags, tail.tags)
+      tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+      } else if(length(markers) > 0){
+        lbls <- markers
+        tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+      }
+    return(list(tags, tags$label))
+  }
+  
+  volcano.sig.adt <- function(tags){
+    p <- ggplot(tags, aes(x = logFC, y = -log10(adj.P.Val), col = significance, label = label)) +
+      geom_point() +
+      theme_minimal() +
+      geom_text_repel(size = 3, box.padding = 0.5) +
+      scale_color_manual(values = c("blue", "black", "red")) +
+      geom_vline(xintercept=c(-log2(1.05), log2(1.05)), col="red") +
+      geom_hline(yintercept=-log10(0.05), col="red")
+    return(p)
+  }
+  
+  dt <- decideTests(fit)
+  dt.summary <- summary(dt)[, -1]
+  adt.sig <- topTreat(fit, coef=effect.coef, n=Inf)[rownames(fit)[which(dt[,effect.coef]!=0)], ]
+  dt.sig <- datatable.sig(adt.sig)
+  effect.adt <- all.tags.adt(effect.coef, markers)
+  p1 <- volcano.sig.adt(effect.adt[[1]])
+  altExp(sce)$condition <- sce$condition
+  down <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "DOWN"]
+  down <- down[!is.na(down)]
+  p4 <- plotDots(altExp(sce), features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  up <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "UP"]
+  up <- up[!is.na(up)]
+  p5 <- plotDots(altExp(sce), features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  return(list(dt.summary, dt.sig, p1, p4, p5))
+}
+```
+
+```{r, warning=FALSE, fig.show='hide'}
+coculture_effect_adt <- pseudo_bulk_adt(fit = tfit, effect = "group", effect.coef = 2, markers = c("CD16", "CD4", "CD81"))
+```
+
+```{r}
+coculture_effect_adt[[1]]
+coculture_effect_adt[[2]]
+```
+
+```{r}
+p3 <- coculture_effect_adt[[3]]
+p3
+
+p <- p1 + p3 + plot_layout(guides = "collect", ncol = 2, widths  = c(1.5,1)) & 
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+p
+```
+
+```{r, fig.width=10, fig.height=5}
+p4 <- plot_grid(coculture_effect_adt[[4]] + theme(axis.text.y = element_text(size = 10)), coculture_effect_adt[[5]] + theme(axis.text.y = element_text(size = 10)), ncol = 2, align = "hv")
+p4
+```
+
+## Findmarkers
+
+We look at the DE genes in each condition (namely, CARKO, CAR, KO, NT) after contacting tumor cells (control [reference] vs tumor):
+
+### RNA
+
+```{r}
+sce$Sample_Name <- factor(sce$Sample_Name, levels = c("NTbefore", "NTafter", "KObefore", "KOafter", "CARbefore", "CARafter", "CARKObefore", "CARKOafter"))
+markers_rna <- findMarkers(sce, groups = sce$Sample_Name)
+
+# NT
+markers_rna_nt_1 <- as.data.frame(markers_rna$NTafter) %>% dplyr::slice_max(order_by = logFC.NTbefore, n = 5) %>% rownames()
+markers_rna_nt_2 <- as.data.frame(markers_rna$NTafter) %>% dplyr::slice_min(order_by = logFC.NTbefore, n = 5) %>% rownames()
+markers_rna_nt <- c(markers_rna_nt_1, markers_rna_nt_2)
+# KO
+markers_rna_ko_1 <- as.data.frame(markers_rna$KOafter) %>% dplyr::slice_max(order_by = logFC.KObefore, n = 5) %>% rownames()
+markers_rna_ko_2 <- as.data.frame(markers_rna$KOafter) %>% dplyr::slice_min(order_by = logFC.KObefore, n = 5) %>% rownames()
+markers_rna_ko <- c(markers_rna_ko_1, markers_rna_ko_2)
+# CAR
+markers_rna_car_1 <- as.data.frame(markers_rna$CARafter) %>% dplyr::slice_max(order_by = logFC.CARbefore, n = 5) %>% rownames()
+markers_rna_car_2 <- as.data.frame(markers_rna$CARafter) %>% dplyr::slice_min(order_by = logFC.CARbefore, n = 5) %>% rownames()
+markers_rna_car <- c(markers_rna_car_1, markers_rna_car_2)
+# CARKO
+markers_rna_carko_1 <- as.data.frame(markers_rna$CARKOafter) %>% dplyr::slice_max(order_by = logFC.CARKObefore, n = 5) %>% rownames()
+markers_rna_carko_2 <- as.data.frame(markers_rna$CARKOafter) %>% dplyr::slice_min(order_by = logFC.CARKObefore, n = 5) %>% rownames()
+markers_rna_carko <- c(markers_rna_carko_1, markers_rna_carko_2)
+
+# combine all markers
+coc_rna_markers <- c(markers_rna_nt, markers_rna_ko, markers_rna_car, markers_rna_carko) %>% unique()
+carko <- as.data.frame(markers_rna$CARKOafter[coc_rna_markers, ]) %>% select(logFC.CARKObefore)
+car <- as.data.frame(markers_rna$CARafter[coc_rna_markers, ]) %>% select(logFC.CARbefore)
+ko <- as.data.frame(markers_rna$KOafter[coc_rna_markers, ]) %>% select(logFC.KObefore)
+nt <- as.data.frame(markers_rna$NTafter[coc_rna_markers, ]) %>% select(logFC.NTbefore)
+coc_rna_df <- cbind(nt, ko, car, carko)
+colnames(coc_rna_df) <- c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK")
+
+# plot markers
+pheatmap(coc_rna_df, cluster_cols = FALSE, filename = "rna.heatmap.png", width = 6, height = 6, angle_col = 45)
+```
+
+```{r}
+sce$Sample_Name <- factor(sce$Sample_Name, levels = c("NTbefore", "NTafter", "KObefore", "KOafter", "CARbefore", "CARafter", "CARKObefore", "CARKOafter"))
+markers_rna <- findMarkers(sce, groups = sce$Sample_Name)
+
+coc_rna_markers <- c("ITGB2", "ITGAX", "FCGR3A", "CSF2", "CCL3", "CCL4", "TNF", "DUSP2", "DUSP4", "MYC", "IL3", "IL1RN", "TNFSF8", "CD160")
+carko <- as.data.frame(markers_rna$CARKOafter[coc_rna_markers, ]) %>% select(logFC.CARKObefore)
+car <- as.data.frame(markers_rna$CARafter[coc_rna_markers, ]) %>% select(logFC.CARbefore)
+ko <- as.data.frame(markers_rna$KOafter[coc_rna_markers, ]) %>% select(logFC.KObefore)
+nt <- as.data.frame(markers_rna$NTafter[coc_rna_markers, ]) %>% select(logFC.NTbefore)
+coc_rna_df <- cbind(nt, ko, car, carko)
+colnames(coc_rna_df) <- c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK")
+
+myColor <- colorRampPalette(c("blue", "white", "red"))(50)
+myBreaks <- c(seq(min(coc_rna_df), 0, length.out=ceiling(50/2) + 1),
+              seq(max(coc_rna_df)/50, max(coc_rna_df), length.out=floor(50/2)))
+
+pheatmap(coc_rna_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 4, filename = "rna.heatmap.png")
+```
+
+### ADT
+
+```{r}
+altExp(sce)$Sample_Name <- sce$Sample_Name
+altExp(sce)$Sample_Name <- factor(altExp(sce)$Sample_Name, levels = c("NTbefore", "NTafter", "KObefore", "KOafter", "CARbefore", "CARafter", "CARKObefore", "CARKOafter"))
+markers_adt <- findMarkers(altExp(sce), groups = altExp(sce)$Sample_Name)
+
+# NT
+markers_adt_nt_1 <- as.data.frame(markers_adt$NTafter) %>% dplyr::slice_max(order_by = logFC.NTbefore, n = 5) %>% rownames()
+markers_adt_nt_2 <- as.data.frame(markers_adt$NTafter) %>% dplyr::slice_min(order_by = logFC.NTbefore, n = 5) %>% rownames()
+markers_adt_nt <- c(markers_adt_nt_1, markers_adt_nt_2)
+# KO
+markers_adt_ko_1 <- as.data.frame(markers_adt$KOafter) %>% dplyr::slice_max(order_by = logFC.KObefore, n = 5) %>% rownames()
+markers_adt_ko_2 <- as.data.frame(markers_adt$KOafter) %>% dplyr::slice_min(order_by = logFC.KObefore, n = 5) %>% rownames()
+markers_adt_ko <- c(markers_adt_ko_1, markers_adt_ko_2)
+# CAR
+markers_adt_car_1 <- as.data.frame(markers_adt$CARafter) %>% dplyr::slice_max(order_by = logFC.CARbefore, n = 5) %>% rownames()
+markers_adt_car_2 <- as.data.frame(markers_adt$CARafter) %>% dplyr::slice_min(order_by = logFC.CARbefore, n = 5) %>% rownames()
+markers_adt_car <- c(markers_adt_car_1, markers_adt_car_2)
+# CARKO
+markers_adt_carko_1 <- as.data.frame(markers_adt$CARKOafter) %>% dplyr::slice_max(order_by = logFC.CARKObefore, n = 5) %>% rownames()
+markers_adt_carko_2 <- as.data.frame(markers_adt$CARKOafter) %>% dplyr::slice_min(order_by = logFC.CARKObefore, n = 5) %>% rownames()
+markers_adt_carko <- c(markers_adt_carko_1, markers_adt_carko_2)
+
+# combine all markers
+coc_adt_markers <- c(markers_adt_nt, markers_adt_ko, markers_adt_car, markers_adt_carko) %>% unique()
+carko <- as.data.frame(markers_adt$CARKOafter[coc_adt_markers, ]) %>% select(logFC.CARKObefore)
+car <- as.data.frame(markers_adt$CARafter[coc_adt_markers, ]) %>% select(logFC.CARbefore)
+ko <- as.data.frame(markers_adt$KOafter[coc_adt_markers, ]) %>% select(logFC.KObefore)
+nt <- as.data.frame(markers_adt$NTafter[coc_adt_markers, ]) %>% select(logFC.NTbefore)
+coc_adt_df <- cbind(nt, ko, car, carko)
+colnames(coc_adt_df) <- c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK")
+
+# plot markers
+pheatmap(coc_adt_df, cluster_cols = FALSE, filename = "adt.heatmap.png", width = 6, height = 6)
+```
+
+```{r}
+altExp(sce)$Sample_Name <- sce$Sample_Name
+altExp(sce)$Sample_Name <- factor(altExp(sce)$Sample_Name, levels = c("NTbefore", "NTafter", "KObefore", "KOafter", "CARbefore", "CARafter", "CARKObefore", "CARKOafter"))
+markers_adt <- findMarkers(altExp(sce), groups = altExp(sce)$Sample_Name)
+
+coc_adt_markers <- c("CD16", "CD4", "CD81", "CD69")
+carko <- as.data.frame(markers_adt$CARKOafter[coc_adt_markers, ]) %>% select(logFC.CARKObefore)
+car <- as.data.frame(markers_adt$CARafter[coc_adt_markers, ]) %>% select(logFC.CARbefore)
+ko <- as.data.frame(markers_adt$KOafter[coc_adt_markers, ]) %>% select(logFC.KObefore)
+nt <- as.data.frame(markers_adt$NTafter[coc_adt_markers, ]) %>% select(logFC.NTbefore)
+coc_adt_df <- cbind(nt, ko, car, carko)
+colnames(coc_adt_df) <- c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK")
+
+myColor <- colorRampPalette(c("blue", "white", "red"))(50)
+myBreaks <- c(seq(min(coc_adt_df), 0, length.out=ceiling(50/2) + 1),
+              seq(max(coc_adt_df)/50, max(coc_adt_df), length.out=floor(50/2)))
+
+pheatmap(coc_adt_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 3, filename = "adt.heatmap.png")
+```
+
+# Before Coculture
+
+```{r}
+sce_before <- sce_combined[, colData(sce_combined)$group == "BeforeCoc"]
+```
+
+## Pseudo Bulk Analysis 
+
+### RNA
+
+```{r}
+rowData(sce_before)$Type <- ifelse(grepl("abo", rownames(sce_before), ignore.case = TRUE), "Antibody Capture", "Gene Expression") # 'Type' is either gene or antibody
+sce_before_split <- splitAltExps(sce_before, rowData(sce_before)$Type) # splitting ADT from RNA
+```
+
+```{r, message=FALSE}
+summed.rna <- aggregateAcrossCells(sce_before_split,
+                                   id=colData(sce_before_split)[, c("condition", "donor")])
+
+y <- DGEList(counts(summed.rna), samples=colData(summed.rna))
+y <- calcNormFactors(y)
+colnames(y) <- paste(y$samples$condition, y$samples$donor, sep="_")
+y$samples
+
+mds.plot <- plotMDS(cpm(y, log=TRUE))
+
+p <- list(mds.plot@.Data[[9]], mds.plot@.Data[[10]]) %>%
+  as.data.frame() %>% 
+  set_colnames(c("Dim1", "Dim2")) %>% 
+  set_rownames(rownames(mds.plot@.Data[[5]])) %>% 
+  rownames_to_column("SampleID") %>% 
+  add_column(condition = rep(c("NT", "KO", "CAR", "CARKO"), each=2)) %>% 
+  ggplot(aes(x = Dim1, y = Dim2, colour = condition)) + 
+  geom_point(size = 2) + 
+  geom_label_repel(aes(label = SampleID), size = 2.75) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#f2b77d", "#ff8080", "#90bff9", "#a0a0a3")) + 
+  theme(legend.position = "none") +
+  xlab("Leading logFC dim 1 (63%)") + ylab("Leading logFC dim 2 (20%)")
+p
+ggsave("plot9.png", p, height = 3, width = 3)
+
+design <- model.matrix(~ donor + CAR + KO + CAR:KO, y$samples)
+
+y <- estimateDisp(y, design)
+summary(y$trended.dispersion)
+fit <- glmQLFit(y, design, robust=TRUE)
+```
+
+#### Effect of
+
+```{r}
+pseudo_bulk_rna <- function(fit, effect, markers){
+  datatable.sig <- function(sig.table){
+    DT::datatable(sig.table,
+                  class = 'compact stripe hower',
+                  extensions = "Buttons",
+                  options = list(
+                    dom = "Bfrtip",
+                    scrollX = TRUE,
+                    paging = TRUE,
+                    searching = TRUE,
+                    info = TRUE,
+                    ordering = TRUE,
+                    buttons = c("csv", "excel"),
+                    columnDefs = list(list(className = 'dt-center', targets = 0:5))), rownames = TRUE)
+  }
+  
+  all.tags.rna <- function(tags.res, tags.sig, markers){
+    tags <- topTags(tags.res, n=Inf)
+    tags <- tags$table
+    tags$significance <- "NO"
+    tags$significance[which(rownames(tags) %in% rownames(tags.res)[which(dt > 0)])] <- "UP"
+    tags$significance[which(rownames(tags) %in% rownames(tags.res)[which(dt < 0)])] <- "DOWN"
+    tags$label <- NA
+    if(length(markers) == 0){
+      top.tags <- slice_max(tags.sig$table, order_by = logFC, n=5) %>% rownames
+      tail.tags <- slice_min(tags.sig$table, order_by = logFC, n=5) %>% rownames
+      lbls <- c(top.tags, tail.tags)
+      tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+      } else if(length(markers) > 0){
+        lbls <- markers
+        tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+        }
+    return(list(tags, lbls))
+  }
+  
+  volcano.sig.rna <- function(tags){
+    p <- ggplot(tags, aes(x = logFC, y = -log10(FDR), col = significance, label = label)) +
+      geom_point() +
+      theme_minimal() +
+      geom_text_repel(size = 3, box.padding = 0.5, max.overlaps = Inf) +
+      scale_color_manual(values = c("blue", "black", "red")) +
+      geom_vline(xintercept=c(-log2(1.2), log2(1.2)), col="red") +
+      geom_hline(yintercept=-log10(0.05), col="red")
+    return(p)
+  }
+  
+  heatmap.sig.rna <- function(sce, sample, markers, logFC){
+    markers <- unique(markers)
+    if(logFC == TRUE){
+      de.markers <- findMarkers(sce, groups = sce$condition)
+      logfc.genes <- de.markers[[sample]][markers, ] %>%
+        as.data.frame() %>%
+        dplyr::select(starts_with("logFC"))
+      p <- pheatmap(logfc.genes, treeheight_row = 0,
+                    cluster_cols = FALSE, cluster_rows = TRUE,
+                    show_rownames = TRUE, show_colnames = TRUE,
+                    color = colorRampPalette(c("yellow", "white", "blue"))(40),
+                    breaks = c(seq(min(logfc.genes), 0, length.out=20),
+                               seq(0.001, max(logfc.genes), length.out=20)))
+      return(p)
+      }
+    
+    else{
+      de.markers <- pairwiseWilcox(logcounts(sce), groups=sce$condition)
+      names(de.markers$statistics) <- de.markers$pairs$second
+      de.markers <- de.markers$statistics[which(de.markers$pairs$first == sample)]
+      auc.genes <- lapply(de.markers, function(.){
+        x <- .[markers, "AUC"]
+        }) %>% as.data.frame()
+      rownames(auc.genes) <- markers
+      p <- pheatmap(auc.genes, treeheight_row = 0,
+                    cluster_cols = FALSE, cluster_rows = TRUE,
+                    show_rownames = TRUE, show_colnames = TRUE,
+                    color = colorRampPalette(c("yellow", "white", "blue"))(40),
+                    breaks = c(seq(min(auc.genes), 0.5, length.out=20),
+                              seq(0.51, max(auc.genes), length.out=20)))
+      return(p)
+    }
+  }
+  
+  if(effect == "CAR33-NK"){
+    res <- glmTreat(fit, contrast = c(0,0,1,0,0), lfc = log2(1.2))
+    } else if(effect == "KLRC1.ko-NK"){
+      res <- glmTreat(fit, contrast = c(0,0,0,1,0), lfc = log2(1.2))
+      } else if(effect == "CAR33-KLRC1.ko-NK"){
+        res <- glmTreat(fit, contrast = c(0,0,0,0,1), lfc = log2(1.2))
+      }
+  
+  dt <- decideTests(res)
+  dt.summary <- summary(dt)
+  rna.sig <- topTags(res, n=Inf)[rownames(res)[which(dt[,1]!=0)], ]
+  dt.sig <- datatable.sig(rna.sig$table)
+  effect.rna <- all.tags.rna(res, rna.sig, markers)
+  p1 <- volcano.sig.rna(effect.rna[[1]])
+  p2 <- heatmap.sig.rna(sce_before_split, effect, effect.rna[[2]], logFC = TRUE) %>% as.ggplot()
+  down <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "DOWN"]
+  down <- down[!is.na(down)]
+  p4 <- plotDots(sce_before_split, features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  up <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "UP"]
+  up <- up[!is.na(up)]
+  p5 <- plotDots(sce_before_split, features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) + 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  return(list(dt.summary, dt.sig, p1, p2, p4, p5, effect.rna))
+}
+```
+
+##### CAR
+
+```{r, warning=FALSE, fig.show='hide'}
+car_effect_rna_before <- pseudo_bulk_rna(fit = fit, effect = "CAR33-NK", markers = c("HLA.DQA1", "HLA.DRA", "HLA.DPB1", "HLA.DQB1", "CD74", "CD70", "ZNF683", "SELL", "CXCR4", "CCR2", "CD8A", "FCGR3A", "GZMB", "TIGIT", "CCL1"))
+```
+
+```{r}
+car_effect_rna_before[[1]]
+car_effect_rna_before[[2]]
+```
+
+```{r}
+p1 <- car_effect_rna_before[[3]]
+p1
+```
+
+```{r, fig.width=10, fig.height=5}
+p2 <- plot_grid(car_effect_rna_before[[5]] , car_effect_rna_before[[6]], ncol = 2, align = "hv")
+p2
+```
+
+##### KO
+
+```{r, warning=FALSE, fig.show='hide'}
+ko_effect_rna_before <- pseudo_bulk_rna(fit = fit, effect = "KLRC1.ko-NK", markers = c("CCR2", "FCGR3A", "CD8B", "ZNF683", "CTLA4", "CD3G", "CCL1"))
+```
+
+```{r}
+ko_effect_rna_before[[1]]
+ko_effect_rna_before[[2]]
+```
+
+```{r}
+p3 <- ko_effect_rna_before[[3]]
+p3
+```
+
+```{r, fig.width=10, fig.height=5}
+p4 <- plot_grid(ko_effect_rna_before[[5]], ko_effect_rna_before[[6]], ncol = 2, align = "hv")
+p4
+```
+
+##### CARKO
+
+```{r, warning=FALSE, fig.show='hide'}
+carko_effect_rna_before <- pseudo_bulk_rna(fit = fit, effect = "CAR33-KLRC1.ko-NK", markers = c("CCR2", "ZNF683", "CCL1"))
+```
+
+```{r}
+carko_effect_rna_before[[1]]
+carko_effect_rna_before[[2]]
+```
+
+```{r}
+p5 <- carko_effect_rna_before[[3]]
+p5
+```
+
+```{r, fig.width=10, fig.height=5}
+p6 <- plot_grid(carko_effect_rna_before[[5]], carko_effect_rna_before[[6]], ncol = 2, align = "hv")
+p6
+```
+
+### ADT
+
+```{r}
+rownames(altExp(sce_before_split)) <- gsub("\\..*", "", rownames(altExp(sce_before_split)))
+
+summed.adt <- aggregateAcrossCells(altExp(sce_before_split),
+                                   id=colData(sce_before_split)[, c("condition", "donor")])
+
+design <- model.matrix(~ donor + CAR + KO + CAR:KO, colData(summed.rna))
+par(mfrow=c(1,2))
+v <- voom(counts(summed.adt), design, plot=TRUE)
+v
+vfit <- lmFit(v, design)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+
+tfit <- treat(vfit, lfc=log2(1.05))
+```
+
+#### Effect of 
+
+```{r}
+pseudo_bulk_adt <- function(fit, effect, effect.coef, markers){
+  datatable.sig <- function(sig.table){
+    DT::datatable(sig.table,
+                  class = 'compact stripe hower',
+                  extensions = "Buttons",
+                  options = list(
+                    dom = "Bfrtip",
+                    scrollX = TRUE,
+                    paging = TRUE,
+                    searching = TRUE,
+                    info = TRUE,
+                    ordering = TRUE,
+                    buttons = c("csv", "excel"),
+                    columnDefs = list(list(className = 'dt-center', targets = 0:5))), rownames = TRUE)
+  }
+  
+  all.tags.adt <- function(coef, markers){
+    tags <- topTreat(fit, coef=coef, n=Inf)
+    tags$significance <- "NO"
+    tags$significance[which(rownames(tags) %in% rownames(fit)[which(dt[, coef] > 0)])] <- "UP"
+    tags$significance[which(rownames(tags) %in% rownames(fit)[which(dt[, coef] < 0)])] <- "DOWN"
+    tags$label <- NA
+    if(length(markers) == 0){
+      top.tags <- slice_max(tags[tags$significance != "NO", ], order_by = logFC, n=5) %>% rownames
+      tail.tags <- slice_min(tags[tags$significance != "NO", ], order_by = logFC, n=5) %>% rownames
+      lbls <- c(top.tags, tail.tags)
+      tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+      } else if(length(markers) > 0){
+        lbls <- markers
+        tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+      }
+    return(list(tags, tags$label))
+  }
+  
+  volcano.sig.adt <- function(tags){
+    p <- ggplot(tags, aes(x = logFC, y = -log10(adj.P.Val), col = significance, label = label)) +
+      geom_point() +
+      theme_minimal() +
+      geom_text_repel(size = 3, box.padding = 0.5) +
+      scale_color_manual(values = c("blue", "black", "red")) +
+      geom_vline(xintercept=c(-log2(1.05), log2(1.05)), col="red") +
+      geom_hline(yintercept=-log10(0.05), col="red")
+    return(p)
+  }
+  
+  heatmap.sig.adt <- function(sce, sample, markers, logFC){
+    adt_sce <- altExp(sce)
+    adt_sce$condition <- sce$condition
+    
+    if(logFC == TRUE){
+      de.markers <- findMarkers(adt_sce, groups = adt_sce$condition)
+      logfc.genes <- de.markers[[sample]][markers, ] %>%
+        as.data.frame() %>%
+        dplyr::select(starts_with("logFC"))
+      p <- pheatmap(logfc.genes, treeheight_row = 0,
+                    cluster_cols = FALSE, cluster_rows = TRUE,
+                    show_rownames = TRUE, show_colnames = TRUE,
+                    color = colorRampPalette(c("yellow", "white", "blue"))(40),
+                    breaks = c(seq(min(logfc.genes), 0, length.out=20),
+                               seq(0.001, max(logfc.genes), length.out=20)),
+                    fontsize_row = 6)
+      return(p)
+    } else{
+      de.markers <- pairwiseWilcox(logcounts(adt_sce), groups=adt_sce$condition)
+      names(de.markers$statistics) <- de.markers$pairs$second
+      de.markers <- de.markers$statistics[which(de.markers$pairs$first == sample)]
+      auc.genes <- lapply(de.markers, function(.){
+        x <- .[markers, "AUC"]
+        }) %>% as.data.frame()
+      rownames(auc.genes) <- markers
+      p <- pheatmap(auc.genes, treeheight_row = 0,
+                    cluster_cols = FALSE, cluster_rows = TRUE,
+                    show_rownames = TRUE, show_colnames = TRUE,
+                    color = colorRampPalette(c("yellow", "white", "blue"))(40),
+                    breaks = c(seq(min(auc.genes), 0.5, length.out=20),
+                               seq(0.51, max(auc.genes), length.out=20)),
+                    fontsize_row = 6)
+      return(p)
+    }
+  }
+  
+  dt <- decideTests(fit)
+  dt.summary <- summary(dt)[, -1]
+  adt.sig <- topTreat(fit, coef=effect.coef, n=Inf)[rownames(fit)[which(dt[,effect.coef]!=0)], ]
+  dt.sig <- datatable.sig(adt.sig)
+  effect.adt <- all.tags.adt(effect.coef, markers)
+  p1 <- volcano.sig.adt(effect.adt[[1]])
+  p2 <- heatmap.sig.adt(sce_before_split, effect, effect.adt[[2]][!is.na(effect.adt[[2]])], logFC = TRUE) %>% as.ggplot()
+  altExp(sce_before_split)$condition <- sce_before_split$condition
+  down <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "DOWN"]
+  down <- down[!is.na(down)]
+  p4 <- plotDots(altExp(sce_before_split), features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  up <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "UP"]
+  up <- up[!is.na(up)]
+  p5 <- plotDots(altExp(sce_before_split), features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+  return(list(dt.summary, dt.sig, p1, p2, p4, p5))
+}
+```
+
+##### CAR
+
+```{r, warning=FALSE, fig.show='hide'}
+car_effect_adt_before <- pseudo_bulk_adt(fit = tfit, effect = "CAR33-NK", effect.coef = 3, markers = c("CD25", "CD45RO", "CD4", "CD11b", "CD8", "CD45RA"))
+```
+
+```{r}
+car_effect_adt_before[[1]]
+car_effect_adt_before[[2]]
+```
+
+```{r}
+p7 <- car_effect_adt_before[[3]]
+p7
+```
+
+```{r, fig.width=12, fig.height=6}
+p8 <- plot_grid(car_effect_adt_before[[5]] + theme(axis.text.y = element_text(size = 10)), car_effect_adt_before[[6]] + theme(axis.text.y = element_text(size = 10)), ncol = 2, align = "hv")
+p8
+```
+
+##### KO
+
+```{r, warning=FALSE, fig.show='hide'}
+ko_effect_adt_before <- pseudo_bulk_adt(fit = tfit, effect = "KLRC1.ko-NK", effect.coef = 4, markers = c("CD16", "CD3", "CD45RA", "CD94"))
+```
+
+```{r}
+ko_effect_adt_before[[1]]
+ko_effect_adt_before[[2]]
+```
+
+```{r}
+p9 <- ko_effect_adt_before[[3]]
+p9
+```
+
+```{r, fig.width=12, fig.height=6}
+p10 <- plot_grid(ko_effect_adt_before[[5]], ko_effect_adt_before[[6]], ncol = 2, align = "hv")
+p10
+```
+
+##### CARKO
+
+```{r, warning=FALSE, fig.show='hide'}
+car_effect_adt_before[[1]]
+  
+all.tags.adt <- function(coef, markers){
+  tags <- topTreat(tfit, coef=coef, n=Inf)
+  tags$significance <- "NO"
+  tags$significance[which(rownames(tags) %in% rownames(tfit)[which(decideTests(tfit)[, coef] > 0)])] <- "UP"
+  tags$significance[which(rownames(tags) %in% rownames(tfit)[which(decideTests(tfit)[, coef] < 0)])] <- "DOWN"
+  tags$label <- NA
+  if(length(markers) == 0){
+    top.tags <- slice_max(tags[tags$significance != "NO", ], order_by = logFC, n=5) %>% rownames
+    tail.tags <- slice_min(tags[tags$significance != "NO", ], order_by = logFC, n=5) %>% rownames
+    lbls <- c(top.tags, tail.tags)
+    tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+    } else if(length(markers) > 0){
+      lbls <- markers
+      tags$label[which(rownames(tags) %in% lbls)] <- rownames(tags)[which(rownames(tags) %in% lbls)]
+      }
+  return(list(tags, tags$label))
+}
+
+volcano.sig.adt <- function(tags){
+  p <- ggplot(tags, aes(x = logFC, y = -log10(adj.P.Val), col = significance, label = label)) +
+    geom_point() +
+    theme_minimal() +
+    geom_text_repel(size = 3, box.padding = 0.5) +
+    scale_color_manual(values = c("black", "red")) +
+    geom_vline(xintercept=c(-log2(1.05), log2(1.05)), col="red") +
+    geom_hline(yintercept=-log10(0.05), col="red")
+  return(p)
+}
+
+carko_tags <- all.tags.adt(5, c())
+p0 <- volcano.sig.adt(carko_tags[[1]])
+p0
+```
+
+# Session
+
+```{r sessionInfo, cache = 0}
+date()
+sessionInfo()
+
+knitr::knit_exit()
+```
+
