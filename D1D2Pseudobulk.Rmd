@@ -50,6 +50,7 @@ sce_d1$donor <- "D1"
 colData(sce_d1) <- colData(sce_d1)[, !names(colData(sce_d1)) %in% "batch"]
 altExp(sce_d1)$condition <- sce_d1$condition
 altExp(sce_d2) <- altExp(sce_d2)[intersect(rownames(altExp(sce_d2)), rownames(altExp(sce_d1))), ]
+altExp(sce_d2)$condition <- sce_d2$condition
 
 # merging D1 & D2
 sce_split <- cbind(sce_d1, sce_d2)
@@ -68,7 +69,7 @@ sce_combined <- SingleCellExperiment(assays = list(counts = sce_counts, logcount
 rownames(sce_combined) <- gsub("TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", "TCR_alpha_beta.TRA_TRB.AHS0078.pAbO", rownames(sce_combined))
 rownames(sce_combined) <- gsub("TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "TCR_gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", rownames(sce_combined))
 
-# changing condition names upon request from Nawid
+# changing condition names upon request
 sce_combined$condition <- gsub("NT", "NT-NK", sce_combined$condition)
 sce_combined$condition <- gsub("CAR", "CAR33-NK", sce_combined$condition)
 sce_combined$condition <- gsub("KO", "KLRC1.ko-NK", sce_combined$condition)
@@ -172,11 +173,11 @@ pseudo_bulk_rna <- function(fit, effect, markers){
   p1 <- volcano.sig.rna(effect.rna[[1]])
   down <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "DOWN"]
   down <- down[!is.na(down)]
-  p4 <- plotDots(sce, features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+  p4 <- plotDots(sce, features=down, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   up <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "UP"]
   up <- up[!is.na(up)]
-  p5 <- plotDots(sce, features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) + 
+  p5 <- plotDots(sce, features=up, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) + 
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   return(list(dt.summary, dt.sig, p1, p4, p5, effect.rna))
 }
@@ -275,11 +276,11 @@ pseudo_bulk_adt <- function(fit, effect, effect.coef, markers){
   altExp(sce)$condition <- sce$condition
   down <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "DOWN"]
   down <- down[!is.na(down)]
-  p4 <- plotDots(altExp(sce), features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+  p4 <- plotDots(altExp(sce), features=down, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   up <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "UP"]
   up <- up[!is.na(up)]
-  p5 <- plotDots(altExp(sce), features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+  p5 <- plotDots(altExp(sce), features=up, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   return(list(dt.summary, dt.sig, p1, p4, p5))
 }
@@ -301,6 +302,8 @@ p3
 p <- p1 + p3 + plot_layout(guides = "collect", ncol = 2, widths  = c(1.5,1)) & 
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
 p
+ggsave("fig5b.tiff", p, height = 4, width = 7)
+ggsave("fig5b.pdf", p, height = 4, width = 7)
 ```
 
 ```{r, fig.width=10, fig.height=5}
@@ -366,7 +369,11 @@ myBreaks <- c(seq(min(coc_rna_df), 0, length.out=ceiling(50/2) + 1),
 
 pheatmap(coc_rna_df, cluster_cols = FALSE,
          color = myColor, breaks = myBreaks,
-         angle_col = 45, width = 4, height = 4, filename = "rna.heatmap.png")
+         angle_col = 45, width = 4, height = 4, filename = "fig5d1.tiff")
+
+pheatmap(coc_rna_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 4, filename = "fig5d1.pdf")
 ```
 
 ### ADT
@@ -425,7 +432,11 @@ myBreaks <- c(seq(min(coc_adt_df), 0, length.out=ceiling(50/2) + 1),
 
 pheatmap(coc_adt_df, cluster_cols = FALSE,
          color = myColor, breaks = myBreaks,
-         angle_col = 45, width = 4, height = 3, filename = "adt.heatmap.png")
+         angle_col = 45, width = 4, height = 3, filename = "fig5d2.tiff")
+
+pheatmap(coc_adt_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 3, filename = "fig5d2.pdf")
 ```
 
 # Before Coculture
@@ -468,7 +479,8 @@ p <- list(mds.plot@.Data[[9]], mds.plot@.Data[[10]]) %>%
   theme(legend.position = "none") +
   xlab("Leading logFC dim 1 (63%)") + ylab("Leading logFC dim 2 (20%)")
 p
-ggsave("plot9.png", p, height = 3, width = 3)
+ggsave("fig3b.tiff", p, height = 3, width = 3)
+ggsave("fig3b.pdf", p, height = 3, width = 3)
 
 design <- model.matrix(~ donor + CAR + KO + CAR:KO, y$samples)
 
@@ -577,11 +589,11 @@ pseudo_bulk_rna <- function(fit, effect, markers){
   p2 <- heatmap.sig.rna(sce_before_split, effect, effect.rna[[2]], logFC = TRUE) %>% as.ggplot()
   down <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "DOWN"]
   down <- down[!is.na(down)]
-  p4 <- plotDots(sce_before_split, features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+  p4 <- plotDots(sce_before_split, features=down, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   up <- effect.rna[[1]]$label[effect.rna[[1]]$significance == "UP"]
   up <- up[!is.na(up)]
-  p5 <- plotDots(sce_before_split, features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) + 
+  p5 <- plotDots(sce_before_split, features=up, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) + 
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   return(list(dt.summary, dt.sig, p1, p2, p4, p5, effect.rna))
 }
@@ -604,8 +616,8 @@ p1
 ```
 
 ```{r, fig.width=10, fig.height=5}
-p2 <- plot_grid(car_effect_rna_before[[5]] , car_effect_rna_before[[6]], ncol = 2, align = "hv")
-p2
+dotcarrnadown <- car_effect_rna_before[[5]]
+dotcarrnaup <- car_effect_rna_before[[6]]
 ```
 
 ##### KO
@@ -625,8 +637,8 @@ p3
 ```
 
 ```{r, fig.width=10, fig.height=5}
-p4 <- plot_grid(ko_effect_rna_before[[5]], ko_effect_rna_before[[6]], ncol = 2, align = "hv")
-p4
+dotkornadown <- ko_effect_rna_before[[5]]
+dotkornaup <- ko_effect_rna_before[[6]]
 ```
 
 ##### CARKO
@@ -646,8 +658,36 @@ p5
 ```
 
 ```{r, fig.width=10, fig.height=5}
-p6 <- plot_grid(carko_effect_rna_before[[5]], carko_effect_rna_before[[6]], ncol = 2, align = "hv")
-p6
+dotcarkornadown <- carko_effect_rna_before[[5]]
+dotcarkornaup <- carko_effect_rna_before[[6]]
+```
+
+```{r}
+rnadown <- dotcarrnadown + theme(axis.text.x=element_blank(), axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  dotkornadown + theme(axis.text.x=element_blank(), axis.title.x=element_blank()) +
+  dotcarkornadown + theme(axis.title.y=element_blank()) + 
+  plot_layout(guides = "collect", ncol = 1, heights = c(5, 5, 1)) & 
+  scale_colour_gradientn(colours=c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred"), 
+                         limits=c(min(dotcarrnadown$data$Average, dotkornadown$data$Average, dotcarkornadown$data$Average), 
+                                  max(dotcarrnadown$data$Average, dotkornadown$data$Average, dotcarkornadown$data$Average))) & 
+  scale_size(limits=c(0,max(dotcarrnadown$data$NumDetected, dotkornadown$data$NumDetected, dotcarkornadown$data$NumDetected))) &
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=7))
+ggsave("fig2e1.tiff", rnadown, width = 5, height = 6)
+ggsave("fig2e1.pdf", rnadown, width = 5, height = 6)
+```
+
+```{r}
+rnaup <- dotcarrnaup + theme(axis.text.x=element_blank(), axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  dotkornaup + theme(axis.text.x=element_blank(), axis.title.x=element_blank()) +
+  dotcarkornaup + theme(axis.title.y=element_blank()) + 
+  plot_layout(guides = "collect", ncol = 1, heights = c(5, 1, 1)) & 
+  scale_colour_gradientn(colours=c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred"), 
+                         limits=c(min(dotcarrnaup$data$Average, dotkornaup$data$Average, dotcarkornaup$data$Average), 
+                                  max(dotcarrnaup$data$Average, dotkornaup$data$Average, dotcarkornaup$data$Average))) & 
+  scale_size(limits=c(0,max(dotcarrnaup$data$NumDetected, dotkornaup$data$NumDetected, dotcarkornaup$data$NumDetected))) &
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=7))
+ggsave("fig2e2.tiff", rnaup, width = 5, height = 6)
+ggsave("fig2e2.pdf", rnaup, width = 5, height = 6)
 ```
 
 ### ADT
@@ -763,11 +803,11 @@ pseudo_bulk_adt <- function(fit, effect, effect.coef, markers){
   altExp(sce_before_split)$condition <- sce_before_split$condition
   down <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "DOWN"]
   down <- down[!is.na(down)]
-  p4 <- plotDots(altExp(sce_before_split), features=down, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+  p4 <- plotDots(altExp(sce_before_split), features=down, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   up <- effect.adt[[1]]$label[effect.adt[[1]]$significance == "UP"]
   up <- up[!is.na(up)]
-  p5 <- plotDots(altExp(sce_before_split), features=up, group="condition", color = c("grey", "orange", "red", "darkred", "blue")) +
+  p5 <- plotDots(altExp(sce_before_split), features=up, group="condition", color = c("grey", "blue", "orange", "red", "darkred")) +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
   return(list(dt.summary, dt.sig, p1, p2, p4, p5))
 }
@@ -787,11 +827,17 @@ car_effect_adt_before[[2]]
 ```{r}
 p7 <- car_effect_adt_before[[3]]
 p7
+
+p <- p1 + p7 +
+  plot_layout(guides = "collect", ncol = 2) &
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+ggsave("fig2b.tiff", p, height = 3.5, width = 8)
+ggsave("fig2b.pdf", p, height = 3.5, width = 8)
 ```
 
 ```{r, fig.width=12, fig.height=6}
-p8 <- plot_grid(car_effect_adt_before[[5]] + theme(axis.text.y = element_text(size = 10)), car_effect_adt_before[[6]] + theme(axis.text.y = element_text(size = 10)), ncol = 2, align = "hv")
-p8
+dotcaradtdown <- car_effect_adt_before[[5]] 
+dotcaradtup <- car_effect_adt_before[[6]] 
 ```
 
 ##### KO
@@ -808,11 +854,20 @@ ko_effect_adt_before[[2]]
 ```{r}
 p9 <- ko_effect_adt_before[[3]]
 p9
+
+p <- p3 + p9 +
+  plot_layout(guides = "collect", ncol = 2) &
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+ggsave("fig2c.tiff", p, height = 3.5, width = 8)
+ggsave("fig2c.pdf", p, height = 3.5, width = 8)
 ```
 
 ```{r, fig.width=12, fig.height=6}
 p10 <- plot_grid(ko_effect_adt_before[[5]], ko_effect_adt_before[[6]], ncol = 2, align = "hv")
 p10
+
+dotkoadtdown <- ko_effect_adt_before[[5]] 
+dotkoadtup <- ko_effect_adt_before[[6]] 
 ```
 
 ##### CARKO
@@ -850,8 +905,38 @@ volcano.sig.adt <- function(tags){
 }
 
 carko_tags <- all.tags.adt(5, c())
-p0 <- volcano.sig.adt(carko_tags[[1]])
+p0 <- volcano.sig.adt(carko_tags[[1]]) + theme(legend.position = "none")
 p0
+
+p <- ggpubr::ggarrange(p5, p0, ncol=2, nrow=1, common.legend = TRUE, legend="bottom")
+ggsave("fig2d.tiff", p, height = 3.5, width = 8)
+ggsave("fig2d.pdf", p, height = 3.5, width = 8)
+```
+
+```{r}
+adtdown <- dotcaradtdown + theme(axis.text.x=element_blank(), axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  dotkoadtdown + 
+  plot_layout(guides = "collect", ncol = 1, heights = c(2, 3)) & 
+  scale_colour_gradientn(colours=c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred"), 
+                         limits=c(min(dotcaradtdown$data$Average, dotkoadtdown$data$Average), 
+                                  max(dotcaradtdown$data$Average, dotkoadtdown$data$Average))) & 
+  scale_size(limits=c(0,max(dotcaradtdown$data$NumDetected, dotkoadtdown$data$NumDetected))) &
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=7))
+ggsave("fig2f1.tiff", adtdown, width = 5, height = 4)
+ggsave("fig2f1.pdf", adtdown, width = 5, height = 4)
+```
+
+```{r}
+adtup <- dotcaradtup + theme(axis.text.x=element_blank(), axis.title.x=element_blank(), axis.title.y=element_blank()) +
+  dotkoadtup + 
+  plot_layout(guides = "collect", ncol = 1, heights = c(4, 1)) & 
+  scale_colour_gradientn(colours=c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred"), 
+                         limits=c(min(dotcaradtup$data$Average, dotkoadtup$data$Average), 
+                                  max(dotcaradtup$data$Average, dotkoadtup$data$Average))) & 
+  scale_size(limits=c(0,max(dotcaradtup$data$NumDetected, dotkoadtup$data$NumDetected))) &
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=7))
+ggsave("fig2f2.tiff", adtup, width = 5, height = 4)
+ggsave("fig2f2.pdf", adtup, width = 5, height = 4)
 ```
 
 # Session
