@@ -57,26 +57,12 @@ coldata1 <- read.csv(paste(data.dir, "_1_Rhapsody19_Target1_Sample_Tag_Calls.csv
   dplyr::mutate(batch = "S1")
 coldata1$Cell_Index <- paste(coldata1$Cell_Index, "_S1", sep = "")
 
-## table with cell types assigned by SevenBridges
-ct1 <- read.csv(paste(data.dir, "_1_Combined_Rhapsody19_Target1_cell_type_experimental.csv", sep = ""))
-ct1$Cell_Index <- paste(ct1$Cell_Index, "_S1", sep = "")
-
-## joining both metadata
-coldata1 <- left_join(coldata1, ct1, by = "Cell_Index")
-
 # batch 2
 ## table with cell information (sample barcode, donor, ...)
 coldata2 <- read.csv(paste(data.dir, "Rhapsody19_Target2_Sample_Tag_Calls.csv", sep = ""), skip = 7) %>%
   dplyr::mutate(invalid = (Sample_Name == "Multiplet" | Sample_Name == "Undetermined")) %>%
   dplyr::mutate(batch = "S2")
 coldata2$Cell_Index <- paste(coldata2$Cell_Index, "_S2", sep = "")
-
-## table with cell types assigned by SevenBridges
-ct2 <- read.csv(paste(data.dir, "Combined_Rhapsody19_Target2_cell_type_experimental.csv", sep = ""))
-ct2$Cell_Index <- paste(ct2$Cell_Index, "_S2", sep = "")
-
-## joining both metadata
-coldata2 <- left_join(coldata2, ct2, by = "Cell_Index")
 
 # binding both coldata from the 2 batches
 coldata <- rbind(coldata1, coldata2)
@@ -385,6 +371,7 @@ sce_before <- sce_split[, colData(sce_split)$group == "BeforeCoc"]
 sce_counts <- rbind(counts(sce_before), counts(altExp(sce_before)))
 sce_logcounts <- rbind(logcounts(sce_before), logcounts(altExp(sce_before)))
 sce <- SingleCellExperiment(assays = list(counts = sce_counts, logcounts = sce_logcounts))
+rowData(sce)$Type <- ifelse(grepl("abo", rownames(sce), ignore.case = TRUE), "Antibody Capture", "Gene Expression")
 sce$condition <- sce_before$condition
 sce$condition <- gsub("NT", "NT-NK", sce$condition)
 sce$condition <- gsub("CAR", "CAR33-NK", sce$condition)
@@ -420,8 +407,11 @@ p2 <- plotReducedDim(sce, dimred = "TSNE", by_exprs_values = "logcounts", colour
   labs(color = "cluster")
 
 plot_grid(p1 , p2, ncol = 1, align = "hv", labels = c("A", "B"))
-ggsave("plot1.png", p1, height = 2.5, width = 7.5)
-ggsave("plot2.png", p2, width = 7, height = 2)
+ggsave("fig3a.tiff", p1, height = 2.5, width = 7.5)
+ggsave("fig3c.tiff", p2, width = 7, height = 2)
+
+ggsave("fig3a.pdf", p1, height = 2.5, width = 7.5)
+ggsave("fig3c.pdf", p2, width = 7, height = 2)
 ```
 
 ```{r, fig.width=6, fig.height=9}
@@ -459,8 +449,11 @@ p5 <- data.frame(colData(sce)) %>%
   guides(fill = guide_legend(nrow = 1))
 
 plot_grid(p3, p4, p5, ncol = 1, align = "hv", labels = c("A", "B", "C"))
-ggsave("plot3.png", p3, height = 4, width = 4)
-ggsave("plot4.png", p5, height = 4, width=6)
+ggsave("fig3d.tiff", p3, height = 4, width = 4)
+ggsave("fig3e.tiff", p5, height = 4, width=6)
+
+ggsave("fig3d.pdf", p3, height = 4, width = 4)
+ggsave("fig3e.pdf", p5, height = 4, width=6)
 ```
 
 ```{r}
@@ -501,7 +494,7 @@ colnames(score) <- c("cluster", "markers", "value")
 score$pathway <- case_when(
   score$markers %in% c("HLA.DQA1", "HLA.DRA", "HLA.DQB1", "HLA.DPB1", "CD74") ~ "Downstream TCR Signaling",
   score$markers %in% c("TRAT1", "CD70", "CD86", "IL2RA", "CD25.2A3.IL2RA", "CD5", "CD5.UCHT2.CD5", "CD6") ~ "Lymphocyte Activation",
-  score$markers %in% c("CD45RA.HI100.PTPRC", "CD3D", "CD3E", "CD3G", "CD3.SK7.CD3E", "CD8A", "CD8B", "CD8.SK1.CD8A") ~ "Naive T-cell Markers",
+  score$markers %in% c("CD45RA.HI100.PTPRC", "CD3D", "CD3E", "CD3G", "CD3.SK7.CD3E", "CD8A", "CD8B", "CD8.SK1.CD8A") ~ "Naive Lymphocyte Markers",
   score$markers %in% c("FCGR3A", "CD16.B73.1.FCGR3A_FCGR3B", "CD11b.ICRF44.ITGAM") ~ "Mature NK Cells",
   score$markers %in% c("PDCD1", "CD279.EH12.1.PDCD1", "CTLA4", "TIGIT", "Tim3.HAVCR2", "CD94.KLRD1", "ZNF683", "CD38", "CD38.HIT2.CD38") ~ "Checkpoints & Suppressive Regulators"
   )
@@ -517,7 +510,21 @@ p10 <- ggplot(score, aes(x = cluster, y = value, fill = cluster)) +
   ylab("differential expression score")
 
 p10
-ggsave("plot5.png", p10, width = 14, height = 3)
+ggsave("fig3f.tiff", p10, width = 14, height = 3)
+ggsave("fig3f.pdf", p10, width = 14, height = 3)
+```
+
+```{r}
+sce_split <- splitAltExps(sce, rowData(sce)$Type)
+rownames(altExp(sce_split)) <- gsub("\\..*", "", rownames(altExp(sce_split)))
+altExp(sce_split)$igraph_lbls <- sce_split$igraph_lbls
+
+supp <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "igraph_lbls",
+                 color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+
+ggsave("fig3supp.tiff", supp, width = 6, height = 12)
+ggsave("fig3supp.pdf", supp, width = 6, height = 12)
 ```
 
 # Session

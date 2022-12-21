@@ -77,7 +77,8 @@ p1 <- plotTSNE(sce_d1, colour_by="igraph_lbls", other_fields = c("condition")) +
   guides(colour = guide_legend(nrow = 1)) +
   labs(color = "cluster")
 p1
-ggsave("plot6.png", p1, height = 4, width = 4)
+ggsave("fig5c.tiff", p1, height = 4, width = 4)
+ggsave("fig5c.pdf", p1, height = 4, width = 4)
 ```
 
 ```{r}
@@ -94,7 +95,8 @@ p2 <- as.data.frame(colData(sce_d1)) %>%
   theme(legend.position="bottom", legend.text = element_text(size=10)) +
   guides(colour = guide_legend(nrow = 1))
 p2
-ggsave("plot7.png", p2, height = 4, width = 6)
+ggsave("fig5e.tiff", p2, height = 4, width = 6)
+ggsave("fig5e.pdf", p2, height = 4, width = 6)
 ```
 
 ```{r}
@@ -168,9 +170,11 @@ as.data.frame(m[1]) %>%
 
 ```{r}
 a <- c("TYMS","CCL4","CSF2","XCL1","IFNG","TOP2A","CCL3","MYC","HMGB2","AURKB","GZMA", "FCGR3A", "TNF", "IL3")
-p5 <- plotDots(sce_d1, features = a, group = "igraph_lbls", color = c("gray", "yellow", "orange", "red", "darkred", "purple", "lightblue", "blue")) +
+p5 <- plotDots(sce_d1, features = a, group = "igraph_lbls", color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text=element_text(size=7))
 p5
+ggsave("fig5f.tiff", p5, width = 5, height = 5)
+ggsave("fig5f.pdf", p5, width = 5, height = 5)
 ```
 
 ```{r}
@@ -199,7 +203,8 @@ p9 <- p8 +
   plot_layout(guides = "collect", ncol = 1, heights = c(1,1)) &
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=10))
 p9
-ggsave("plot8.png", p9, width = 6, height = 6)
+ggsave("fig5g.tiff", p9, width = 6, height = 6)
+ggsave("fig5g.pdf", p9, width = 6, height = 6)
 ```
 
 # Session

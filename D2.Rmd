@@ -51,13 +51,6 @@ coldata <- read.csv(paste(data.dir, "CARNK_Sample2_Sample_Tag_Calls.csv", sep = 
   dplyr::mutate(invalid = (Sample_Name == "Multiplet" | Sample_Name == "Undetermined")) %>%
   dplyr::mutate(donor = "D2")
 coldata$Cell_Index <- paste(coldata$Cell_Index, "_D2", sep = "")
-
-## table with cell types assigned by SevenBridges
-ct <- read.csv(paste(data.dir, "Combined_CARNK_Sample2_cell_type_experimental.csv", sep = ""))
-ct$Cell_Index <- paste(ct$Cell_Index, "_D2", sep = "")
-
-## joining both metadata
-coldata <- left_join(coldata, ct, by = "Cell_Index")
 ```
 
 ## SevenBridges Output
@@ -333,7 +326,7 @@ sce_split$condition <- factor(sce_split$condition, levels = c("NT", "KO", "CAR",
 ```
 
 ```{r}
-#saveRDS(sce_split, "intermediate_files/D2/sce_donor2.Rds")
+saveRDS(sce_split, "intermediate_files/D2/sce_donor2.Rds")
 ```
 
 # Session
