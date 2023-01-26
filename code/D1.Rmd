@@ -1,0 +1,534 @@
+---
+title: "CD33 CAR NK: D1"
+author: "Ahmad Al Ajami (AG Imkeller | KGU)"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    keep_md: false
+    toc: true
+    toc_float: true
+    toc_depth: 5
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=TRUE, message=FALSE, cache = FALSE}
+suppressPackageStartupMessages({
+library(tidyverse)
+library(scran)
+library(scater)
+library(patchwork)
+library(scDblFinder)
+library(cowplot)
+library(pheatmap)
+library(edgeR)
+library(ggrepel)
+})
+```
+
+# Loading Data
+
+```{r data, message=FALSE}
+data.dir <- "Files_already_generated_with_Sevenbridges/D1/"
+
+data1 <- read.csv(paste(data.dir, "_1_Combined_Rhapsody19_Target1_RSEC_MolsPerCell.csv", sep = ""), skip = 7)
+data1$Cell_Index <- paste(data1$Cell_Index, "_S1", sep = "")
+
+data2 <- read.csv(paste(data.dir, "Combined_Rhapsody19_Target2_RSEC_MolsPerCell.csv", sep = ""), skip = 7)
+data2$Cell_Index <- paste(data2$Cell_Index, "_S2", sep = "")
+
+data <- rbind(data1, data2) 
+```
+
+The metadata contains Sample_Tag (nucleotide labeled antibody used to distinguish between samples), Sample_Name (patient id), multiplet status assigned by the SevenBridges pipeline
+
+```{r metadata, message=FALSE}
+# batch 1
+## table with cell information (sample barcode, donor, ...)
+coldata1 <- read.csv(paste(data.dir, "_1_Rhapsody19_Target1_Sample_Tag_Calls.csv", sep = ""), skip = 7) %>%
+  dplyr::mutate(invalid = (Sample_Name == "Multiplet" | Sample_Name == "Undetermined")) %>%
+  dplyr::mutate(batch = "S1")
+coldata1$Cell_Index <- paste(coldata1$Cell_Index, "_S1", sep = "")
+
+# batch 2
+## table with cell information (sample barcode, donor, ...)
+coldata2 <- read.csv(paste(data.dir, "Rhapsody19_Target2_Sample_Tag_Calls.csv", sep = ""), skip = 7) %>%
+  dplyr::mutate(invalid = (Sample_Name == "Multiplet" | Sample_Name == "Undetermined")) %>%
+  dplyr::mutate(batch = "S2")
+coldata2$Cell_Index <- paste(coldata2$Cell_Index, "_S2", sep = "")
+
+# binding both coldata from the 2 batches
+coldata <- rbind(coldata1, coldata2)
+```
+
+## SevenBridges Output
+
+SevenBridges pre-processing pipeline report:
+
+```{r sb_output, message=FALSE}
+sb <- data.frame(Batch = c("S1", "S2"),
+                 Number.of.Cells = c(dim(data1)[1], dim(data2)[1]),
+                 Number.of.Features = c(dim(data1[, -1])[2], dim(data2[, -1])[2]),
+                 Median.Number.of.Features = c(median(rowSums(data1 > 0)), median(rowSums(data2 > 0))),
+                 stringsAsFactors = F)
+
+DT::datatable(sb, 
+              class = 'compact stripe hower',
+              options = list(
+                dom = "Bfrtip",
+                scrollX = TRUE,
+                paging = FALSE,
+                searching = FALSE,
+                info = FALSE,
+                ordering = FALSE,
+                columnDefs = list(list(className = 'dt-center', targets = 0:3))), rownames = FALSE)
+```
+
+## Sample IDs
+
+Number of cells in each sample:
+
+```{r sample_ids, message=FALSE}
+table(coldata$Sample_Name)
+```
+
+We define a new column containing the group of samples:
+
+- BeforeCoc = Before
+- AfterCoc = After
+- NA = Multiplets + Undetermined
+
+```{r group_ids, message=FALSE, fig.width=10, fig.height=4}
+coldata <- coldata %>%
+  dplyr::mutate(group = ifelse(grepl("before", Sample_Name), "BeforeCoc",
+    ifelse(grepl("after", Sample_Name), "AfterCoc", NA)))
+
+p1 <- coldata %>%
+  ggplot(aes(x = batch, fill = group)) + 
+  geom_bar() +
+  labs(x = "Batch", fill = "Group")
+
+p2 <- coldata %>%
+  ggplot(aes(x = batch, fill = Sample_Name)) + 
+  geom_bar() +
+  labs(x = "Batch", fill = "Sample Name")
+
+p3 <- coldata %>%
+  ggplot(aes(x = group, fill = Sample_Name)) + 
+  geom_bar() +
+  labs(x = "Group", fill = "Sample Name")
+
+p1 + p2 + p3
+```
+
+```{r}
+coldata %>%
+  ggplot(aes(x = batch, fill = group, color = Sample_Name)) +
+  geom_bar() +
+  labs(x = "Batch", fill = "Group", color = "Sample Name")
+```
+
+# Pre-processing Workflow
+
+## Filtering
+
+```{r, message=FALSE}
+data_t <- data[, -1] %>% t()
+rownames(data_t) <- colnames(data[, -1])
+colnames(data_t) <- data$Cell_Index
+
+sce <- SingleCellExperiment(assays = list(counts = data_t), colData = coldata)
+rowData(sce)$Type <- ifelse(grepl("abo", rownames(sce), ignore.case = TRUE), "Antibody Capture", "Gene Expression") # 'Type' is either gene or antibody
+```
+
+```{r, message=FALSE}
+# removing the cells with multiplet or undetermined assignment
+sce <- sce[, !coldata$invalid]
+
+coldata <- coldata %>%
+  dplyr::filter(!invalid)
+```
+
+```{r, message=FALSE}
+# splitting protein from RNA
+sce_split <- splitAltExps(sce, rowData(sce)$Type)
+# altExpNames(sce_split)
+```
+
+### Overall Quality Metrics
+
+#### Before Filtering
+
+```{r, message=FALSE}
+# ADT vs RNA counts
+rna_numi <- colSums(counts(sce_split))
+adt_numi <- colSums(counts(altExp(sce_split)))
+nUMIdf <- data.frame(rna_nUMI = rna_numi,
+                     adt_nUMI = adt_numi, 
+                     Batch = sce_split$batch)
+
+ggplot(nUMIdf, aes(x = log10(adt_nUMI+1), y = log10(rna_nUMI+1))) + 
+  geom_point(alpha = 0.1, size = 1) +
+  geom_density_2d(color = "orange") +
+  facet_grid(.~Batch) +
+  labs(x = "ADT Counts", y = "RNA Counts")
+```
+
+#### Computing QC metrics
+
+```{r scDblFinder, echo=TRUE, include=FALSE}
+# detecting doublets using scDblFinder
+# keeping the doublets returned and rechecking them in downstream analysis
+set.seed(42L)
+
+sce_split <- scDblFinder(sce_split)
+```
+
+```{r, message=FALSE}
+outliers <- perCellQCMetrics(sce_split)
+libsize.drop <- isOutlier(outliers$sum, log = TRUE, type = "both", nmads = 3)
+feature.drop <- isOutlier(outliers$detected, log = TRUE, type = "lower", nmads = 3)
+print(data.frame(ByLibSize = sum(libsize.drop),
+                 ByFeature = sum(feature.drop),
+                 Discard = sum(libsize.drop | feature.drop)))
+outliers.discard <- libsize.drop | feature.drop
+
+#outliers.discard <- quickPerCellQC(outliers)
+#colSums(as.matrix(outliers.discard))
+```
+
+#### Ab Counts
+
+```{r, message=FALSE}
+ab.discard <- isOutlier(outliers$`altexps_Antibody Capture_detected`,
+                        log = TRUE,
+                        type = "lower",
+                        min_diff = 1)
+summary(ab.discard)
+
+hist(outliers$`altexps_Antibody Capture_detected`, 
+     col = 'grey',
+     main = "", xlab = "Number of detected ADTs")
+```
+
+#### QC Plots
+
+```{r, message=FALSE}
+colData(sce_split) <- cbind(colData(sce_split), outliers) # adding the outliers info (sum, detected) to the sce object coldata
+sce_split$discard <- outliers.discard | ab.discard # adding the cells to be discarded to the sce object coldata
+
+plotColData(sce_split, x = "detected", y = "sum", colour_by = "discard", other_fields=c("batch")) +
+  facet_wrap(~batch) +
+  theme(panel.border = element_rect(color = "grey")) + 
+  labs(x = "Number of Features Detected", y = "Library Size")
+```
+
+```{r, message=FALSE}
+gridExtra::grid.arrange(
+  plotColData(sce_split, x="batch", y="sum", colour_by="discard") +
+    scale_y_log10() + ggtitle("Library Size"),
+  plotColData(sce_split, x="batch", y="detected", colour_by="discard") +
+    scale_y_log10() + ggtitle("Genes Detected") + labs(y = "genes detected"),
+  plotColData(sce_split, x="batch", y="altexps_Antibody Capture_detected", colour_by="discard") +
+    scale_y_log10() + ggtitle("Antibodies Detected") + labs(y = "antibodies detected"),
+  ncol=1
+)
+```
+
+```{r, message=FALSE}
+gridExtra::grid.arrange(
+  plotColData(sce_split, y="sum", colour_by="discard") +
+    scale_y_log10() + ggtitle("Library Size"),
+  plotColData(sce_split, y="detected", colour_by="discard") +
+    scale_y_log10() + ggtitle("Genes Detected") + labs(y = "genes detected"),
+  plotColData(sce_split, y="altexps_Antibody Capture_detected", colour_by="discard") +
+    scale_y_log10() + ggtitle("Antibodies Detected") + labs(y = "antibodies detected"),
+  ncol=1
+)
+```
+
+```{r, message=FALSE}
+# ADT vs RNA counts
+rna_numi <- colSums(counts(sce_split))
+adt_numi <- colSums(counts(altExp(sce_split)))
+nUMIdf <- data.frame(rna_nUMI = rna_numi,
+                     adt_nUMI = adt_numi, 
+                     Batch = sce_split$batch,
+                     Discard = sce_split$discard)
+
+ggplot(nUMIdf, aes(x = log10(adt_nUMI+1), y = log10(rna_nUMI+1), color = Discard)) + 
+  geom_point(alpha = 0.1, size = 1) +
+  geom_density_2d(color = "black") +
+  facet_grid(.~Batch) +
+  labs(x = "ADT Counts", y = "RNA Counts") +
+  scale_color_manual(values = c("#0072B2", "#C4961A"))
+```
+
+```{r filtering, message=FALSE}
+# filtering; removing outliers
+sce_split <- sce_split[, !sce_split$discard]
+sce_split
+table(coldata$Sample_Name)
+```
+
+## Normalization
+
+```{r, message=FALSE}
+# RNA
+
+## size factors
+lib.sf <- librarySizeFactors(sce_split)
+summary(lib.sf)
+
+lib.sf.df <- data.frame(lib.sf, Group = colData(sce_split)$group)
+
+## plotting size factors
+hist(log10(lib.sf), xlab="Log10[Size Factor]", col='grey80')
+
+ggplot(lib.sf.df, aes(log10(lib.sf))) +  
+  geom_histogram() + 
+  facet_wrap(~Group, scales = "free") + 
+  labs(x = "Log10[Size Factor]")
+
+## normalization
+sce_split <- logNormCounts(sce_split)
+#assayNames(sce_split)
+
+# ADT
+
+clr_norm <- function(x) {
+  return(log1p(x = x / (exp(x = sum(log1p(x = x[x > 0]), na.rm = TRUE) / length(x = x)))))
+}
+
+logcounts(altExp(sce_split)) <- apply(counts(altExp(sce_split)), 2, clr_norm)
+```
+
+## Variance Modeling
+
+```{r, message=FALSE}
+# determining variance components
+dec <- modelGeneVar(sce_split)
+dec[order(dec$bio, decreasing = TRUE), ]
+
+fit <- metadata(dec)
+plot(fit$mean, fit$var, 
+     xlab = "Mean of log-expression", ylab = "Variance of log-expression")
+points(fit$mean, fit$var, col = "red", pch = 16)
+curve(fit$trend(x), col = "dodgerblue", add = TRUE, lwd = 2)
+```
+
+## Distribution of ADT Markers 
+
+Looking at the distribution of ADT markers (after normalization): 
+
+```{r, message=FALSE, fig.asp=1.8}
+p <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, ]), aes_string(x=logcounts(altExp(sce_split))[adt_name, ])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+print(p)
+```
+
+We define a new column containing the condition of samples:
+
+- NT = NTbefore + NTafter
+- KO = KObefore + KOafter
+- CAR = CARbefore + CARafter
+- CARKO = CARKObefore + CARKOafter
+
+```{r, message=FALSE}
+# creating new colData
+sce_split$CAR <- ifelse(sce_split$Sample_Name %in% c("CARKOafter", "CARKObefore", "CARafter", "CARbefore"), "Yes", "No")
+sce_split$KO <- ifelse(sce_split$Sample_Name %in% c("CARKOafter", "CARKObefore", "KOafter", "KObefore"), "Yes", "No")
+sce_split$condition <- ifelse(sce_split$Sample_Name %in% c("CARKOafter", "CARKObefore"), "CARKO",
+                                 ifelse(sce_split$Sample_Name %in% c("CARafter", "CARbefore"), "CAR",
+                                        ifelse(sce_split$Sample_Name %in% c("KOafter", "KObefore"), "KO", "NT")))
+sce_split$condition <- factor(sce_split$condition, levels = c("NT", "KO", "CAR", "CARKO"))
+```
+
+```{r}
+saveRDS(sce_split, "intermediate_files/D1/sce_donor1.Rds")
+```
+
+# Processing - Downstream Analysis
+
+## Before
+
+```{r}
+sce_split <- readRDS("intermediate_files/D1/sce_donor1.Rds")
+sce_before <- sce_split[, colData(sce_split)$group == "BeforeCoc"]
+sce_counts <- rbind(counts(sce_before), counts(altExp(sce_before)))
+sce_logcounts <- rbind(logcounts(sce_before), logcounts(altExp(sce_before)))
+sce <- SingleCellExperiment(assays = list(counts = sce_counts, logcounts = sce_logcounts))
+rowData(sce)$Type <- ifelse(grepl("abo", rownames(sce), ignore.case = TRUE), "Antibody Capture", "Gene Expression")
+sce$condition <- sce_before$condition
+sce$condition <- gsub("NT", "NT-NK", sce$condition)
+sce$condition <- gsub("CAR", "CAR33-NK", sce$condition)
+sce$condition <- gsub("KO", "KLRC1.ko-NK", sce$condition)
+sce$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce$condition)
+sce$condition <- factor(sce$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
+```
+
+```{r}
+set.seed(42L)
+
+sce <- runPCA(sce, ncomponents=20)
+sce <- runTSNE(sce, dimred="PCA")
+
+snn_graph <- buildSNNGraph(sce, k=50, use.dimred='PCA')
+igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
+sce$igraph_lbls <- as.factor(igraph_clusters)
+```
+
+```{r}
+p1 <- plotReducedDim(sce, dimred = "TSNE", by_exprs_values = "logcounts", colour_by = "condition", other_fields = "condition") +
+  facet_wrap(~condition, ncol = 4) + 
+  scale_color_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) +
+  theme_bw() + 
+  theme(strip.text.x = element_text(size = 12), legend.title = element_blank(), legend.position="bottom", legend.text = element_text(size=10))
+
+p2 <- plotReducedDim(sce, dimred = "TSNE", by_exprs_values = "logcounts", colour_by = "igraph_lbls", other_fields = "igraph_lbls") +
+  facet_wrap(~igraph_lbls, ncol = 6) + 
+  scale_color_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon")) +
+  theme_bw() + 
+  theme(strip.text.x = element_text(size = 12), legend.position="bottom", legend.text = element_text(size=10)) +
+  guides(colour = guide_legend(nrow = 1)) +
+  labs(color = "cluster")
+
+plot_grid(p1 , p2, ncol = 1, align = "hv", labels = c("A", "B"))
+ggsave("fig3a.tiff", p1, height = 2.5, width = 7.5)
+ggsave("fig3c.tiff", p2, width = 7, height = 2)
+
+ggsave("fig3a.pdf", p1, height = 2.5, width = 7.5)
+ggsave("fig3c.pdf", p2, width = 7, height = 2)
+```
+
+```{r, fig.width=6, fig.height=9}
+p3 <- data.frame(colData(sce)) %>%
+  group_by(igraph_lbls) %>%
+  summarize(n = n()) %>%
+  mutate(freq = n / sum(n) * 100) %>% 
+  ggplot(aes(x = igraph_lbls, y = freq, fill = igraph_lbls)) +
+  geom_col(position = "dodge", color = "black") + 
+  scale_fill_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon"))+ 
+  labs(x = "cluster", y = "cluster relative abundance (%)", fill = "cluster") +
+  theme_bw() +
+  theme(legend.position="bottom", legend.text = element_text(size=10)) +
+  guides(fill = guide_legend(nrow = 1))
+
+p4 <- data.frame(colData(sce)) %>%
+  group_by(condition, igraph_lbls) %>%
+  summarize(n = n()) %>%
+  ggplot(aes(x = igraph_lbls, y = n, fill = condition)) +
+  geom_col(position = "fill", color = "black") + 
+  scale_fill_manual(values = c("gray", "blue", "orange", "red")) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  labs(title = "Cluster Abundance", x = "Cluster Number", y = "Cluster Relative Abundance")
+
+p5 <- data.frame(colData(sce)) %>%
+  group_by(condition, igraph_lbls) %>%
+  summarize(n = n()) %>%
+  mutate(freq = n / sum(n)) %>% 
+  ggplot(aes(x = igraph_lbls, y = freq, fill = condition)) +
+  geom_col(position = "dodge", color = "black") + 
+  scale_fill_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
+  labs(x = "cluster", y = "condition relative abundance") +
+  theme_bw() +
+  theme(legend.position="bottom", legend.text = element_text(size=10)) +
+  guides(fill = guide_legend(nrow = 1))
+
+plot_grid(p3, p4, p5, ncol = 1, align = "hv", labels = c("A", "B", "C"))
+ggsave("fig3d.tiff", p3, height = 4, width = 4)
+ggsave("fig3e.tiff", p5, height = 4, width=6)
+
+ggsave("fig3d.pdf", p3, height = 4, width = 4)
+ggsave("fig3e.pdf", p5, height = 4, width=6)
+```
+
+```{r}
+rownames(sce) <- gsub("TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", "TCR_alpha_beta.TRA_TRB.AHS0078.pAbO", rownames(sce))
+rownames(sce) <- gsub("TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "TCR_gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", rownames(sce))
+rownames(sce[grep("abo", rownames(sce), ignore.case = T, value = T), ]) <- gsub(".AH.*", "", rownames(sce[grep("abo", rownames(sce), ignore.case = T, value = T), ]))
+```
+
+Each dot represents a feature (gene or surface protein) within the respective pathway: 
+
+```{r}
+'%nin%' <- Negate('%in%')
+
+markers <- c("HLA.DQA1", "HLA.DRA", "HLA.DQB1", "HLA.DPB1", "CD74",
+             "TRAT1", "CD70", "CD86", "IL2RA", "CD25.2A3.IL2RA", "CD5", "CD5.UCHT2.CD5", "CD6",
+             "CD45RA.HI100.PTPRC", "CD3D", "CD3E", "CD3G", "CD3.SK7.CD3E", "CD8A", "CD8B", "CD8.SK1.CD8A",
+             "FCGR3A", "CD16.B73.1.FCGR3A_FCGR3B", "CD11b.ICRF44.ITGAM",
+             "PDCD1", "CD279.EH12.1.PDCD1", "CTLA4", "TIGIT", "Tim3.HAVCR2", "CD94.KLRD1", "ZNF683", "CD38", "CD38.HIT2.CD38")
+
+score <- data.frame(matrix(NA, nrow = length(levels(sce$igraph_lbls)), ncol = length(markers)))
+rownames(score) <- levels(sce$igraph_lbls)
+colnames(score) <- markers
+
+for(m in markers){
+  for(c in levels(sce$igraph_lbls)){
+    mean.all <- counts(sce)[m, sce$igraph_lbls %nin% c] %>% mean()
+    mean.cluster <- counts(sce)[m, sce$igraph_lbls %in% c] %>% mean()
+    if(mean.cluster == 0){
+      score[c, m] <- -1
+    } else {
+      score[c, m] <- log10(mean.cluster/mean.all)
+    }
+  }
+}
+
+score <- score %>% rownames_to_column('cluster') %>% pivot_longer(cols = -cluster)
+colnames(score) <- c("cluster", "markers", "value")
+score$pathway <- case_when(
+  score$markers %in% c("HLA.DQA1", "HLA.DRA", "HLA.DQB1", "HLA.DPB1", "CD74") ~ "Downstream TCR Signaling",
+  score$markers %in% c("TRAT1", "CD70", "CD86", "IL2RA", "CD25.2A3.IL2RA", "CD5", "CD5.UCHT2.CD5", "CD6") ~ "Lymphocyte Activation",
+  score$markers %in% c("CD45RA.HI100.PTPRC", "CD3D", "CD3E", "CD3G", "CD3.SK7.CD3E", "CD8A", "CD8B", "CD8.SK1.CD8A") ~ "Naive Lymphocyte Markers",
+  score$markers %in% c("FCGR3A", "CD16.B73.1.FCGR3A_FCGR3B", "CD11b.ICRF44.ITGAM") ~ "Mature NK Cells",
+  score$markers %in% c("PDCD1", "CD279.EH12.1.PDCD1", "CTLA4", "TIGIT", "Tim3.HAVCR2", "CD94.KLRD1", "ZNF683", "CD38", "CD38.HIT2.CD38") ~ "Checkpoints & Suppressive Regulators"
+  )
+
+p10 <- ggplot(score, aes(x = cluster, y = value, fill = cluster)) +
+  facet_wrap(~pathway, ncol = 5) +
+  geom_dotplot(binaxis = 'y', stackdir = 'center', stackratio = 1, dotsize = 2, binwidth = 0.05) +
+  geom_hline(yintercept = 0,  col = "red", size = 0.5) + 
+  stat_summary(fun = median, geom = "point", shape = 18, size = 1.65, color = "black") +
+  scale_fill_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon")) +
+  theme_bw()+ 
+  theme(legend.position="none", strip.text.x = element_text(size = 10)) + 
+  ylab("differential expression score")
+
+p10
+ggsave("fig3f.tiff", p10, width = 14, height = 3)
+ggsave("fig3f.pdf", p10, width = 14, height = 3)
+```
+
+```{r}
+sce_split <- splitAltExps(sce, rowData(sce)$Type)
+rownames(altExp(sce_split)) <- gsub("\\..*", "", rownames(altExp(sce_split)))
+altExp(sce_split)$igraph_lbls <- sce_split$igraph_lbls
+
+supp <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "igraph_lbls",
+                 color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+
+ggsave("fig3supp.tiff", supp, width = 6, height = 12)
+ggsave("fig3supp.pdf", supp, width = 6, height = 12)
+```
+
+# Session
+
+```{r sessionInfo, cache = 0}
+date()
+sessionInfo()
+
+knitr::knit_exit()
+```
+
