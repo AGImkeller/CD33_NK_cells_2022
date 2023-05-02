@@ -26,6 +26,7 @@ library(cowplot)
 library(pheatmap)
 library(edgeR)
 library(ggrepel)
+library(bluster)
 })
 ```
 
@@ -384,7 +385,71 @@ sce <- runTSNE(sce, dimred="PCA")
 
 snn_graph <- buildSNNGraph(sce, k=50, use.dimred='PCA')
 igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
-sce$igraph_lbls <- as.factor(igraph_clusters)
+sce$lbls_50 <- as.factor(igraph_clusters)
+
+snn_graph <- buildSNNGraph(sce, k=70, use.dimred='PCA')
+igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
+sce$lbls_70 <- as.factor(igraph_clusters)
+
+snn_graph <- buildSNNGraph(sce, k=100, use.dimred='PCA')
+igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
+sce$lbls_100 <- as.factor(igraph_clusters)
+
+table(lbls_50 = sce$lbls_50, lbls_70 = sce$lbls_70)
+table(lbls_50 = sce$lbls_50, lbls_100 = sce$lbls_100)
+table(lbls_70 = sce$lbls_70, lbls_100 = sce$lbls_100)
+```
+
+```{r}
+k_param <- c("lbls_50","lbls_70","lbls_100")
+m1 <- lapply(k_param, function(.){
+  print(.)
+  sil.approx <- approxSilhouette(reducedDim(sce, "PCA"), clusters=colData(sce)[[.]])
+  sil.data <- as.data.frame(sil.approx)
+  sil.data$closest <- factor(ifelse(sil.data$width > 0, colData(sce)[[.]], sil.data$other))
+  sil.data$cluster <- colData(sce)[[.]]
+  ari <- aricode::ARI(sil.data$cluster, sil.data$closest)
+  wri <- Wind::wRI(sil.data$cluster, sil.data$closest)
+  plot(ggplot(sil.data, aes(x=cluster, y=width, colour=closest)) +
+    ggbeeswarm::geom_quasirandom(method="smiley"))
+  return(list(ari, wri[[1]]))
+})
+df1 <- data.frame(k = c(50,70,100),
+                  ARI = sapply(m1, function(x) x[[1]]),
+                  WRI = sapply(m1, function(x) x[[2]]),
+                  Method = "Silhouette Width")
+
+m2 <- lapply(k_param, function(.){
+  print(.)
+  pure.pbmc <- neighborPurity(reducedDim(sce, "PCA"), colData(sce)[[.]])
+  pure.data <- as.data.frame(pure.pbmc)
+  pure.data$maximum <- factor(pure.data$maximum)
+  pure.data$cluster <- colData(sce)[[.]]
+  ari <- aricode::ARI(pure.data$cluster, pure.data$maximum)
+  wri <- Wind::wRI(pure.data$cluster, pure.data$maximum)
+  plot(ggplot(pure.data, aes(x=cluster, y=purity, colour=maximum)) +
+    ggbeeswarm::geom_quasirandom(method="smiley"))
+  return(list(ari, wri[[1]]))
+})
+df2 <- data.frame(k = c(50,70,100),
+                  ARI = sapply(m2, function(x) x[[1]]),
+                  WRI = sapply(m2, function(x) x[[2]]),
+                  Method = "Cluster Purity")
+
+df <- rbind(df1, df2)
+df <- pivot_longer(df, cols = c("ARI", "WRI"), names_to = "score", values_to = "Value")
+p <- ggplot(df, aes(x = as.factor(k), y = Value, fill = score)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Method, ncol = 1) +
+  labs(x = "k", y = "similarity score") +
+  scale_fill_manual(values = c("#1B9E77", "#D95F02"))
+p
+ggsave("fig3supp_clus.pdf", p, width = 4, height = 4)
+ggsave("fig3supp_clus.tiff", p, width = 4, height = 4)
+```
+
+```{r}
+sce$igraph_lbls <- sce$lbls_50
 ```
 
 ```{r}
