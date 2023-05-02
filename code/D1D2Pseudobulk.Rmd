@@ -369,6 +369,52 @@ pheatmap(coc_rna_df, cluster_cols = FALSE,
          angle_col = 45, width = 4, height = 4, filename = "fig5d1.pdf")
 ```
 
+With D1 & D2:
+
+```{r}
+coc_rna_markers <- c("IFNG", "TOP2A", "AURKB")
+carko <- as.data.frame(markers_rna$CARKOafter[coc_rna_markers, ]) %>% select(logFC.CARKObefore)
+car <- as.data.frame(markers_rna$CARafter[coc_rna_markers, ]) %>% select(logFC.CARbefore)
+ko <- as.data.frame(markers_rna$KOafter[coc_rna_markers, ]) %>% select(logFC.KObefore)
+nt <- as.data.frame(markers_rna$NTafter[coc_rna_markers, ]) %>% select(logFC.NTbefore)
+coc_rna_df <- cbind(nt, ko, car, carko)
+colnames(coc_rna_df) <- c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK")
+myColor <- colorRampPalette(c("blue", "white", "red"))(50)
+myBreaks <- c(seq(min(coc_rna_df), 0, length.out=ceiling(50/2) + 1),
+              seq(max(coc_rna_df)/50, max(coc_rna_df), length.out=floor(50/2)))
+
+pheatmap(coc_rna_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 3, filename = "fig5g.tiff")
+
+pheatmap(coc_rna_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 3, filename = "fig5g.pdf")
+```
+
+With D1 only: 
+
+```{r}
+markers_rna_d1 <- findMarkers(sce[, sce$donor == "D1"], groups = sce[, sce$donor == "D1"]$Sample_Name)
+carko <- as.data.frame(markers_rna_d1$CARKOafter[coc_rna_markers, ]) %>% select(logFC.CARKObefore)
+car <- as.data.frame(markers_rna_d1$CARafter[coc_rna_markers, ]) %>% select(logFC.CARbefore)
+ko <- as.data.frame(markers_rna_d1$KOafter[coc_rna_markers, ]) %>% select(logFC.KObefore)
+nt <- as.data.frame(markers_rna_d1$NTafter[coc_rna_markers, ]) %>% select(logFC.NTbefore)
+coc_rna_df <- cbind(nt, ko, car, carko)
+colnames(coc_rna_df) <- c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK")
+myColor <- colorRampPalette(c("blue", "white", "red"))(50)
+myBreaks <- c(seq(min(coc_rna_df), 0, length.out=ceiling(50/2) + 1),
+              seq(max(coc_rna_df)/50, max(coc_rna_df), length.out=floor(50/2)))
+
+pheatmap(coc_rna_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 3, filename = "fig5g.D1.tiff")
+
+pheatmap(coc_rna_df, cluster_cols = FALSE,
+         color = myColor, breaks = myBreaks,
+         angle_col = 45, width = 4, height = 3, filename = "fig5g.D1.pdf")
+```
+
 ### ADT
 
 ```{r}
@@ -466,14 +512,14 @@ p <- list(mds.plot@.Data[[9]], mds.plot@.Data[[10]]) %>%
   add_column(condition = rep(c("NT", "KO", "CAR", "CARKO"), each=2)) %>% 
   ggplot(aes(x = Dim1, y = Dim2, colour = condition)) + 
   geom_point(size = 2) + 
-  geom_label_repel(aes(label = SampleID), size = 2.75) + 
+  geom_label_repel(aes(label = SampleID), size = 3, box.padding = 0.75) + 
   theme_bw() + 
   scale_color_manual(values = c("#f2b77d", "#ff8080", "#90bff9", "#a0a0a3")) + 
   theme(legend.position = "none") +
   xlab("Leading logFC dim 1 (63%)") + ylab("Leading logFC dim 2 (20%)")
 p
-ggsave("fig3b.tiff", p, height = 3, width = 3)
-ggsave("fig3b.pdf", p, height = 3, width = 3)
+ggsave("fig3b.tiff", p, height = 4, width = 4)
+ggsave("fig3b.pdf", p, height = 4, width = 4)
 
 design <- model.matrix(~ donor + CAR + KO + CAR:KO, y$samples)
 
