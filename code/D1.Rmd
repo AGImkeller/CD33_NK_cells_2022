@@ -588,6 +588,147 @@ ggsave("fig3supp.tiff", supp, width = 6, height = 12)
 ggsave("fig3supp.pdf", supp, width = 6, height = 12)
 ```
 
+```{r}
+altExp(sce_split)$CD16_status <- ifelse(logcounts(altExp(sce_split)["CD16",]) > 1, "CD16+", "CD16-")
+
+supp1 <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "CD16_status",
+                  color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+
+ggsave("fig3supp1.tiff", supp1, width = 6, height = 12)
+ggsave("fig3supp1.pdf", supp1, width = 6, height = 12)
+```
+
+
+```{r}
+supp1.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$CD16_status == "CD16+"]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$CD16_status == "CD16+"])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+ggsave("fig3supp1.1.tiff", supp1.1, width = 8, height = 12)
+ggsave("fig3supp1.1.pdf", supp1.1, width = 8, height = 12)
+
+supp1.2 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$CD16_status == "CD16-"]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$CD16_status == "CD16-"])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+ggsave("fig3supp1.2.tiff", supp1.2, width = 8, height = 12)
+ggsave("fig3supp1.2.pdf", supp1.2, width = 8, height = 12)
+```
+
+```{r}
+adts <- c("CD3", "CD4", "TCR_alpha_beta", "TCR_gamma_delta", "CD56", "CD26", "CD226", "CD314", "CD335")
+
+supp2 <- do.call(plot_grid, c(lapply(adts, function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, ]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, ])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 3))
+
+ggsave("fig3supp2.tiff", supp2, height = 6)
+ggsave("fig3supp2.pdf", supp2, height = 6)
+
+supp2.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, ]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, ])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+ggsave("fig3supp2.1.tiff", supp2.1, width = 8, height = 12)
+ggsave("fig3supp2.1.pdf", supp2.1, width = 8, height = 12)
+```
+
+```{r}
+sce_split <- readRDS("intermediate_files/D1/sce_donor1.Rds")
+sce_split$condition <- gsub("NT", "NT-NK", sce_split$condition)
+sce_split$condition <- gsub("CAR", "CAR33-NK", sce_split$condition)
+sce_split$condition <- gsub("KO", "KLRC1.ko-NK", sce_split$condition)
+sce_split$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce_split$condition)
+sce_split$condition <- factor(sce_split$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
+
+altExp(sce_split)$group <- sce_split$group
+altExp(sce_split)$condition <- sce_split$condition
+
+rownames(altExp(sce_split)) <- gsub("TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", "TCR_alpha_beta.TRA_TRB.AHS0078.pAbO", rownames(altExp(sce_split)))
+rownames(altExp(sce_split)) <- gsub("TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "TCR_gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", rownames(altExp(sce_split)))
+rownames(altExp(sce_split)) <- gsub("\\..*", "", rownames(altExp(sce_split)))
+
+altExp(sce_split)$condition_group <- paste(altExp(sce_split)$condition, altExp(sce_split)$group, sep = "_")
+
+supp3 <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "condition_group",
+                  color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+
+ggsave("fig3supp3.tiff", supp3, width = 18, height = 12)
+ggsave("fig3supp3.pdf", supp3, width = 18, height = 12)
+```
+
+```{r}
+supp3.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-KLRC1.ko-NK_AfterCoc"]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-KLRC1.ko-NK_AfterCoc"])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+ggsave("fig3supp3.1.tiff", supp3.1, width = 8, height = 12)
+ggsave("fig3supp3.1.pdf", supp3.1, width = 8, height = 12)
+
+supp3.2 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-KLRC1.ko-NK_BeforeCoc"]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-KLRC1.ko-NK_BeforeCoc"])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+ggsave("fig3supp3.2.tiff", supp3.2, width = 8, height = 12)
+ggsave("fig3supp3.2.pdf", supp3.2, width = 8, height = 12)
+
+supp3.3 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-NK_AfterCoc"]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-NK_AfterCoc"])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+ggsave("fig3supp3.3.tiff", supp3.3, width = 8, height = 12)
+ggsave("fig3supp3.3.pdf", supp3.3, width = 8, height = 12)
+
+supp3.4 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-NK_BeforeCoc"]), 
+         aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-NK_BeforeCoc"])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
+
+ggsave("fig3supp3.4.tiff", supp3.4, width = 8, height = 12)
+ggsave("fig3supp3.4.pdf", supp3.4, width = 8, height = 12)
+```
+
 # Session
 
 ```{r sessionInfo, cache = 0}
