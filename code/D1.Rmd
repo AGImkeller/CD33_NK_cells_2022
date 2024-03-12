@@ -377,6 +377,42 @@ sce$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce$condition)
 sce$condition <- factor(sce$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
 ```
 
+Start - supp figure 2
+
+```{r}
+sce_v2 <- sce
+rownames(sce_v2) <- gsub("TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", "TCR_alpha_beta.TRA_TRB.AHS0078.pAbO", rownames(sce_v2))
+rownames(sce_v2[grep("abo", rownames(sce_v2), ignore.case = T, value = T), ]) <- 
+  gsub(".AH.*", "", rownames(sce_v2[grep("abo", rownames(sce_v2), ignore.case = T, value = T), ]))
+
+sce_supp <- splitAltExps(sce_v2, rowData(sce_v2)$Type)
+rownames(altExp(sce_supp)) <- gsub("\\..*", "", rownames(altExp(sce_supp)))
+
+
+adts <- c("CD3", "CD4", "TCR_alpha_beta")
+
+supp2 <- do.call(plot_grid, c(lapply(adts, function(adt_name){
+  ggplot(as.data.frame(logcounts(altExp(sce_supp))[adt_name, ]), 
+         aes_string(x=logcounts(altExp(sce_supp))[adt_name, ])) +
+    geom_histogram(color="black",
+                   fill = "black",
+                   breaks=seq(0, 4.5, by=0.10)) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 3))
+
+ggsave("fig2supp1.tiff", supp2, width = 6, height = 2)
+ggsave("fig2supp1.pdf", supp2, width = 6, height = 2)
+```
+
+End - supp figure 2
+
+```{r}
+'%nin%' <- Negate('%in%')
+sce <- sce[rownames(sce) %nin% c("CD3.SK7.CD3E.AHS0033.pAbO", "CD4.SK3.CD4.AHS0032.pAbO", "TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", 
+                                 "TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "IgG.IGHG1_2_3_4.AHS0059.pAbO", "IgM.IGHM.AHS0198.pAbO"), ]
+```
+
+
 ```{r}
 set.seed(42L)
 
@@ -523,74 +559,94 @@ rownames(sce) <- gsub("TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "TCR_gamma_de
 rownames(sce[grep("abo", rownames(sce), ignore.case = T, value = T), ]) <- gsub(".AH.*", "", rownames(sce[grep("abo", rownames(sce), ignore.case = T, value = T), ]))
 ```
 
-Each dot represents a feature (gene or surface protein) within the respective pathway: 
-
-```{r}
-'%nin%' <- Negate('%in%')
-
-markers <- c("HLA.DQA1", "HLA.DRA", "HLA.DQB1", "HLA.DPB1", "CD74",
-             "TRAT1", "CD70", "CD86", "IL2RA", "CD25.2A3.IL2RA", "CD5", "CD5.UCHT2.CD5", "CD6",
-             "CD45RA.HI100.PTPRC", "CD3D", "CD3E", "CD3G", "CD3.SK7.CD3E", "CD8A", "CD8B", "CD8.SK1.CD8A",
-             "FCGR3A", "CD16.B73.1.FCGR3A_FCGR3B", "CD11b.ICRF44.ITGAM",
-             "PDCD1", "CD279.EH12.1.PDCD1", "CTLA4", "TIGIT", "Tim3.HAVCR2", "CD94.KLRD1", "ZNF683", "CD38", "CD38.HIT2.CD38")
-
-score <- data.frame(matrix(NA, nrow = length(levels(sce$igraph_lbls)), ncol = length(markers)))
-rownames(score) <- levels(sce$igraph_lbls)
-colnames(score) <- markers
-
-for(m in markers){
-  for(c in levels(sce$igraph_lbls)){
-    mean.all <- counts(sce)[m, sce$igraph_lbls %nin% c] %>% mean()
-    mean.cluster <- counts(sce)[m, sce$igraph_lbls %in% c] %>% mean()
-    if(mean.cluster == 0){
-      score[c, m] <- -1
-    } else {
-      score[c, m] <- log10(mean.cluster/mean.all)
-    }
-  }
-}
-
-score <- score %>% rownames_to_column('cluster') %>% pivot_longer(cols = -cluster)
-colnames(score) <- c("cluster", "markers", "value")
-score$pathway <- case_when(
-  score$markers %in% c("HLA.DQA1", "HLA.DRA", "HLA.DQB1", "HLA.DPB1", "CD74") ~ "Downstream TCR Signaling",
-  score$markers %in% c("TRAT1", "CD70", "CD86", "IL2RA", "CD25.2A3.IL2RA", "CD5", "CD5.UCHT2.CD5", "CD6") ~ "Lymphocyte Activation",
-  score$markers %in% c("CD45RA.HI100.PTPRC", "CD3D", "CD3E", "CD3G", "CD3.SK7.CD3E", "CD8A", "CD8B", "CD8.SK1.CD8A") ~ "Naive Lymphocyte Markers",
-  score$markers %in% c("FCGR3A", "CD16.B73.1.FCGR3A_FCGR3B", "CD11b.ICRF44.ITGAM") ~ "Mature NK Cells",
-  score$markers %in% c("PDCD1", "CD279.EH12.1.PDCD1", "CTLA4", "TIGIT", "Tim3.HAVCR2", "CD94.KLRD1", "ZNF683", "CD38", "CD38.HIT2.CD38") ~ "Checkpoints & Suppressive Regulators"
-  )
-
-p10 <- ggplot(score, aes(x = cluster, y = value, fill = cluster)) +
-  facet_wrap(~pathway, ncol = 5) +
-  geom_dotplot(binaxis = 'y', stackdir = 'center', stackratio = 1, dotsize = 2, binwidth = 0.05) +
-  geom_hline(yintercept = 0,  col = "red", size = 0.5) + 
-  stat_summary(fun = median, geom = "point", shape = 18, size = 1.65, color = "black") +
-  scale_fill_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon")) +
-  theme_bw()+ 
-  theme(legend.position="none", strip.text.x = element_text(size = 10)) + 
-  ylab("differential expression score")
-
-p10
-ggsave("fig3f.tiff", p10, width = 14, height = 3)
-ggsave("fig3f.pdf", p10, width = 14, height = 3)
-```
-
 ```{r}
 sce_split <- splitAltExps(sce, rowData(sce)$Type)
 rownames(altExp(sce_split)) <- gsub("\\..*", "", rownames(altExp(sce_split)))
 altExp(sce_split)$igraph_lbls <- sce_split$igraph_lbls
+```
 
-supp <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "igraph_lbls",
-                 color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
+```{r}
+get_top_markers <- function(df) {
+  top_genes <- as.data.frame(df) %>%
+    dplyr::slice_min(order_by = Top, n = 8)
+  return(top_genes)
+}
+
+markers_rna <- findMarkers(sce_split, groups = sce_split$igraph_lbls)
+top_markers_rna <- lapply(markers_rna, get_top_markers)
+top_markers_unique_rna <- unique(do.call(c, lapply(top_markers_rna, rownames)))
+
+markers_adt <- findMarkers(altExp(sce_split), groups = altExp(sce_split)$igraph_lbls)
+top_markers_adt <- lapply(markers_adt, get_top_markers)
+top_markers_unique_adt <- unique(do.call(c, lapply(top_markers_adt, rownames)))
+
+p1 <- plotDots(sce_split, features = top_markers_unique_rna, group = "igraph_lbls",
+              color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
 
-ggsave("fig3supp.tiff", supp, width = 6, height = 12)
-ggsave("fig3supp.pdf", supp, width = 6, height = 12)
+p2 <- plotDots(altExp(sce_split), features = top_markers_unique_adt, group = "igraph_lbls",
+              color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
+
+ggsave("fig3f1.tiff", p1, width = 6, height = 12)
+ggsave("fig3f1.pdf", p1, width = 6, height = 12)
+
+ggsave("fig3f2.tiff", p2, width = 6, height = 12)
+ggsave("fig3f2.pdf", p2, width = 6, height = 12)
 ```
 
 ```{r}
 altExp(sce_split)$CD16_status <- ifelse(logcounts(altExp(sce_split)["CD16",]) > 1, "CD16+", "CD16-")
+altExp(sce_split)$condition <- sce_split$condition
+```
 
+```{r}
+adts <- rownames(altExp(sce_split))[which(!rownames(altExp(sce_split)) %in% "CD16")]
+
+supp_v1 <- lapply(adts, function(adt_name){
+  ggplot(data.frame(value = logcounts(altExp(sce_split))[adt_name, ],
+                    CD16_status = altExp(sce_split)$CD16_status),
+         aes(x = value, color = CD16_status, fill = CD16_status)) +
+    geom_density(alpha = 0.5) +
+    scale_fill_manual(values = c("CD16-" = "lightblue", "CD16+" = "lightcoral")) + 
+    scale_color_manual(values = c("CD16-" = "blue", "CD16+" = "red")) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"),
+          legend.position = "right")})
+
+final_plot <- wrap_plots(supp_v1, ncol = 4) +
+  plot_layout(guides = "collect")
+
+ggsave("fig2.v1.tiff", final_plot, width = 12, height = 18)
+ggsave("fig2.v1.pdf", final_plot, width = 12, height = 18)
+
+# ------------------------------------- #
+
+adts <- c("CD56", "CD69", "CD279", "CD18", "CD38", "CD94", "CD122", "CD226", "CD314", "CD335", "Tim3")
+
+supp_v2 <- lapply(adts, function(adt_name){
+  ggplot(data.frame(value = logcounts(altExp(sce_split))[adt_name, ],
+                    #CD16_status = altExp(sce_split)$CD16_status,
+                    condition = altExp(sce_split)$condition),
+         # aes(x = value, color = condition, linetype = CD16_status)) +
+         aes(x = value, color = condition)) +
+    geom_density(alpha = 0.5) +
+    scale_color_manual(values = c("NT-NK" = "gray", "KLRC1.ko-NK" = "blue", "CAR33-NK" = "orange", "CAR33-KLRC1.ko-NK" = "red")) +
+    # scale_linetype_manual(values = c("CD16-" = "dashed", "CD16+" = "solid")) + 
+    xlab(adt_name) + 
+    theme(axis.title.x = element_text(size = 8, face="bold"),
+          legend.position = "right")})
+
+final_plot <- wrap_plots(supp_v2, ncol = 3) +
+  plot_layout(guides = "collect")
+
+ggsave("fig2.v2.tiff", final_plot, width = 10, height = 10)
+ggsave("fig2.v2.pdf", final_plot, width = 10, height = 10)
+```
+
+Additional:
+
+```{r}
 supp1 <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "CD16_status",
                   color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
@@ -598,7 +654,6 @@ supp1 <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), gro
 ggsave("fig3supp1.tiff", supp1, width = 6, height = 12)
 ggsave("fig3supp1.pdf", supp1, width = 6, height = 12)
 ```
-
 
 ```{r}
 supp1.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
@@ -627,20 +682,6 @@ ggsave("fig3supp1.2.pdf", supp1.2, width = 8, height = 12)
 ```
 
 ```{r}
-adts <- c("CD3", "CD4", "TCR_alpha_beta", "TCR_gamma_delta", "CD56", "CD26", "CD226", "CD314", "CD335")
-
-supp2 <- do.call(plot_grid, c(lapply(adts, function(adt_name){
-  ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, ]), 
-         aes_string(x=logcounts(altExp(sce_split))[adt_name, ])) +
-    geom_histogram(color="black",
-                   fill = "black",
-                   breaks=seq(0, 4.5, by=0.10)) + 
-    xlab(adt_name) + 
-    theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 3))
-
-ggsave("fig3supp2.tiff", supp2, height = 6)
-ggsave("fig3supp2.pdf", supp2, height = 6)
-
 supp2.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
   ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, ]), 
          aes_string(x=logcounts(altExp(sce_split))[adt_name, ])) +
