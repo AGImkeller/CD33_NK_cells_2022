@@ -377,7 +377,7 @@ sce$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce$condition)
 sce$condition <- factor(sce$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
 ```
 
-Start - supp figure 2
+Start - supp figure 3
 
 ```{r}
 sce_v2 <- sce
@@ -400,11 +400,11 @@ supp2 <- do.call(plot_grid, c(lapply(adts, function(adt_name){
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 3))
 
-ggsave("fig2supp1.tiff", supp2, width = 6, height = 2)
-ggsave("fig2supp1.pdf", supp2, width = 6, height = 2)
+ggsave("fig3bsupp.tiff", supp2, width = 6, height = 2)
+ggsave("fig3bsupp.pdf", supp2, width = 6, height = 2)
 ```
 
-End - supp figure 2
+End - supp figure 3
 
 ```{r}
 '%nin%' <- Negate('%in%')
@@ -480,8 +480,8 @@ p <- ggplot(df, aes(x = as.factor(k), y = Value, fill = score)) +
   labs(x = "k", y = "similarity score") +
   scale_fill_manual(values = c("#1B9E77", "#D95F02"))
 p
-ggsave("fig3supp_clus.pdf", p, width = 4, height = 4)
-ggsave("fig3supp_clus.tiff", p, width = 4, height = 4)
+ggsave("fig3csupp.pdf", p, width = 4, height = 4)
+ggsave("fig3csupp.tiff", p, width = 4, height = 4)
 ```
 
 ```{r}
@@ -521,7 +521,11 @@ p3 <- data.frame(colData(sce)) %>%
   scale_fill_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon"))+ 
   labs(x = "cluster", y = "cluster relative abundance (%)", fill = "cluster") +
   theme_bw() +
-  theme(legend.position="bottom", legend.text = element_text(size=10)) +
+  theme(axis.title.x = element_text(size = 14),
+      axis.text.x = element_text(size = 14),
+      axis.title.y = element_text(size = 14),
+      axis.text.y = element_text(size = 14),
+      legend.position="bottom", legend.text = element_text(size=12), legend.title = element_text(size = 12)) +
   guides(fill = guide_legend(nrow = 1))
 
 p4 <- data.frame(colData(sce)) %>%
@@ -542,7 +546,11 @@ p5 <- data.frame(colData(sce)) %>%
   scale_fill_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
   labs(x = "cluster", y = "condition relative abundance") +
   theme_bw() +
-  theme(legend.position="bottom", legend.text = element_text(size=10)) +
+  theme(axis.title.x = element_text(size = 14),
+        axis.text.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        axis.text.y = element_text(size = 14),
+        legend.position="bottom", legend.text = element_text(size=12), legend.title = element_blank()) +
   guides(fill = guide_legend(nrow = 1))
 
 plot_grid(p3, p4, p5, ncol = 1, align = "hv", labels = c("A", "B", "C"))
@@ -557,6 +565,60 @@ ggsave("fig3e.pdf", p5, height = 4, width=6)
 rownames(sce) <- gsub("TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", "TCR_alpha_beta.TRA_TRB.AHS0078.pAbO", rownames(sce))
 rownames(sce) <- gsub("TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "TCR_gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", rownames(sce))
 rownames(sce[grep("abo", rownames(sce), ignore.case = T, value = T), ]) <- gsub(".AH.*", "", rownames(sce[grep("abo", rownames(sce), ignore.case = T, value = T), ]))
+```
+
+Each dot represents a feature (gene or surface protein) within the respective pathway: 
+
+```{r}
+'%nin%' <- Negate('%in%')
+
+markers <- c("HLA.DQA1", "HLA.DRA", "HLA.DQB1", "HLA.DPB1", "CD74",
+             "TRAT1", "CD70", "CD86", "IL2RA", "CD25.2A3.IL2RA", "CD5", "CD5.UCHT2.CD5", "CD6",
+             "FCGR3A", "CD16.B73.1.FCGR3A_FCGR3B", "CD11b.ICRF44.ITGAM",
+             "PDCD1", "CD279.EH12.1.PDCD1", "CTLA4", "TIGIT", "Tim3.HAVCR2", "CD94.KLRD1", "ZNF683", "CD38", "CD38.HIT2.CD38")
+
+score <- data.frame(matrix(NA, nrow = length(levels(sce$igraph_lbls)), ncol = length(markers)))
+rownames(score) <- levels(sce$igraph_lbls)
+colnames(score) <- markers
+
+for(m in markers){
+  for(c in levels(sce$igraph_lbls)){
+    mean.all <- counts(sce)[m, sce$igraph_lbls %nin% c] %>% mean()
+    mean.cluster <- counts(sce)[m, sce$igraph_lbls %in% c] %>% mean()
+    if(mean.cluster == 0){
+      score[c, m] <- -1
+    } else {
+      score[c, m] <- log10(mean.cluster/mean.all)
+    }
+  }
+}
+
+score <- score %>% rownames_to_column('cluster') %>% pivot_longer(cols = -cluster)
+colnames(score) <- c("cluster", "markers", "value")
+score$pathway <- case_when(
+  score$markers %in% c("PDCD1", "CD279.EH12.1.PDCD1", "CTLA4", "TIGIT", "Tim3.HAVCR2", "CD94.KLRD1", "ZNF683", "CD38", "CD38.HIT2.CD38") ~ "Checkpoints & Suppressive Regulators",
+  score$markers %in% c("HLA.DQA1", "HLA.DRA", "HLA.DQB1", "HLA.DPB1", "CD74") ~ "Downstream TCR Signaling",
+  score$markers %in% c("TRAT1", "CD70", "CD86", "IL2RA", "CD25.2A3.IL2RA", "CD5", "CD5.UCHT2.CD5", "CD6") ~ "Lymphocyte Activation",
+  score$markers %in% c("FCGR3A", "CD16.B73.1.FCGR3A_FCGR3B", "CD11b.ICRF44.ITGAM") ~ "Mature NK Cells"
+  )
+
+p10 <- ggplot(score, aes(x = cluster, y = value, fill = cluster)) +
+  facet_wrap(~pathway, ncol = 5) +
+  geom_dotplot(binaxis = 'y', stackdir = 'center', stackratio = 1, dotsize = 2, binwidth = 0.05) +
+  geom_hline(yintercept = 0,  col = "red", size = 0.5) + 
+  stat_summary(fun = median, geom = "point", shape = 18, size = 1.65, color = "black") +
+  scale_fill_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon")) +
+  theme_bw()+ 
+  theme(legend.position="none", strip.text.x = element_text(size = 13),
+      axis.title.x = element_text(size = 14),
+      axis.text.x = element_text(size = 14),
+      axis.title.y = element_text(size = 14),
+      axis.text.y = element_text(size = 14)) + 
+  ylab("differential expression score")
+
+p10
+ggsave("fig3f.tiff", p10, width = 14, height = 3)
+ggsave("fig3f.pdf", p10, width = 14, height = 3)
 ```
 
 ```{r}
@@ -588,11 +650,11 @@ p2 <- plotDots(altExp(sce_split), features = top_markers_unique_adt, group = "ig
               color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
 
-ggsave("fig3f1.tiff", p1, width = 6, height = 12)
-ggsave("fig3f1.pdf", p1, width = 6, height = 12)
+ggsave("fig3d1supp.tiff", p1, width = 6, height = 12)
+ggsave("fig3d1supp.pdf", p1, width = 6, height = 12)
 
-ggsave("fig3f2.tiff", p2, width = 6, height = 12)
-ggsave("fig3f2.pdf", p2, width = 6, height = 12)
+ggsave("fig3d2supp.tiff", p2, width = 6, height = 12)
+ggsave("fig3d2supp.pdf", p2, width = 6, height = 12)
 ```
 
 ```{r}
@@ -617,9 +679,6 @@ supp_v1 <- lapply(adts, function(adt_name){
 final_plot <- wrap_plots(supp_v1, ncol = 4) +
   plot_layout(guides = "collect")
 
-ggsave("fig2.v1.tiff", final_plot, width = 12, height = 18)
-ggsave("fig2.v1.pdf", final_plot, width = 12, height = 18)
-
 # ------------------------------------- #
 
 adts <- c("CD56", "CD69", "CD279", "CD18", "CD38", "CD94", "CD122", "CD226", "CD314", "CD335", "Tim3")
@@ -639,10 +698,8 @@ supp_v2 <- lapply(adts, function(adt_name){
 
 final_plot <- wrap_plots(supp_v2, ncol = 3) +
   plot_layout(guides = "collect")
-
-ggsave("fig2.v2.tiff", final_plot, width = 10, height = 10)
-ggsave("fig2.v2.pdf", final_plot, width = 10, height = 10)
 ```
+
 
 Additional:
 
@@ -650,9 +707,6 @@ Additional:
 supp1 <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "CD16_status",
                   color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
-
-ggsave("fig3supp1.tiff", supp1, width = 6, height = 12)
-ggsave("fig3supp1.pdf", supp1, width = 6, height = 12)
 ```
 
 ```{r}
@@ -665,9 +719,6 @@ supp1.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
 
-ggsave("fig3supp1.1.tiff", supp1.1, width = 8, height = 12)
-ggsave("fig3supp1.1.pdf", supp1.1, width = 8, height = 12)
-
 supp1.2 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
   ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$CD16_status == "CD16-"]), 
          aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$CD16_status == "CD16-"])) +
@@ -676,9 +727,6 @@ supp1.2 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
                    breaks=seq(0, 4.5, by=0.10)) + 
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
-
-ggsave("fig3supp1.2.tiff", supp1.2, width = 8, height = 12)
-ggsave("fig3supp1.2.pdf", supp1.2, width = 8, height = 12)
 ```
 
 ```{r}
@@ -690,9 +738,6 @@ supp2.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
                    breaks=seq(0, 4.5, by=0.10)) + 
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
-
-ggsave("fig3supp2.1.tiff", supp2.1, width = 8, height = 12)
-ggsave("fig3supp2.1.pdf", supp2.1, width = 8, height = 12)
 ```
 
 ```{r}
@@ -715,9 +760,6 @@ altExp(sce_split)$condition_group <- paste(altExp(sce_split)$condition, altExp(s
 supp3 <- plotDots(altExp(sce_split), features = rownames(altExp(sce_split)), group = "condition_group",
                   color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
   theme(legend.position="bottom", legend.box="vertical", legend.margin=margin())
-
-ggsave("fig3supp3.tiff", supp3, width = 18, height = 12)
-ggsave("fig3supp3.pdf", supp3, width = 18, height = 12)
 ```
 
 ```{r}
@@ -730,9 +772,6 @@ supp3.1 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
 
-ggsave("fig3supp3.1.tiff", supp3.1, width = 8, height = 12)
-ggsave("fig3supp3.1.pdf", supp3.1, width = 8, height = 12)
-
 supp3.2 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
   ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-KLRC1.ko-NK_BeforeCoc"]), 
          aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-KLRC1.ko-NK_BeforeCoc"])) +
@@ -741,9 +780,6 @@ supp3.2 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
                    breaks=seq(0, 4.5, by=0.10)) + 
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
-
-ggsave("fig3supp3.2.tiff", supp3.2, width = 8, height = 12)
-ggsave("fig3supp3.2.pdf", supp3.2, width = 8, height = 12)
 
 supp3.3 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
   ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-NK_AfterCoc"]), 
@@ -754,9 +790,6 @@ supp3.3 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
 
-ggsave("fig3supp3.3.tiff", supp3.3, width = 8, height = 12)
-ggsave("fig3supp3.3.pdf", supp3.3, width = 8, height = 12)
-
 supp3.4 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), function(adt_name){
   ggplot(as.data.frame(logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-NK_BeforeCoc"]), 
          aes_string(x=logcounts(altExp(sce_split))[adt_name, altExp(sce_split)$condition_group == "CAR33-NK_BeforeCoc"])) +
@@ -765,17 +798,142 @@ supp3.4 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
                    breaks=seq(0, 4.5, by=0.10)) + 
     xlab(adt_name) + 
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
-
-ggsave("fig3supp3.4.tiff", supp3.4, width = 8, height = 12)
-ggsave("fig3supp3.4.pdf", supp3.4, width = 8, height = 12)
 ```
 
-# Session
+
+##  KATHARINA (27.03.2024):
+
+Added CD16 in surface marker density plots.
+
+```{r}
+sce_split <- readRDS("intermediate_files/D1/sce_donor1.Rds")
+sce_split$condition <- gsub("NT", "NT-NK", sce_split$condition)
+sce_split$condition <- gsub("CAR", "CAR33-NK", sce_split$condition)
+sce_split$condition <- gsub("KO", "KLRC1.ko-NK", sce_split$condition)
+sce_split$condition <- gsub("CAR33-NKKLRC1.ko-NK", "CAR33-KLRC1.ko-NK", sce_split$condition)
+sce_split$condition <- factor(sce_split$condition, levels = c("NT-NK", "KLRC1.ko-NK", "CAR33-NK", "CAR33-KLRC1.ko-NK"))
+
+altExp(sce_split)$group <- sce_split$group
+altExp(sce_split)$condition <- sce_split$condition
+
+rownames(altExp(sce_split)) <- gsub("TCR.alpha_beta.TRA_TRB.AHS0078.pAbO", "TCR_alpha_beta.TRA_TRB.AHS0078.pAbO", rownames(altExp(sce_split)))
+rownames(altExp(sce_split)) <- gsub("TCR.gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", "TCR_gamma_delta.11F2.TRG_TRD.AHS0142.pAbO", rownames(altExp(sce_split)))
+rownames(altExp(sce_split)) <- gsub("\\..*", "", rownames(altExp(sce_split)))
+```
+
+
+```{r}
+rownames(altExp(sce_split))
+
+colData(sce_split)
+```
+
+All lines in one plot
+
+```{r}
+adts_manual <- c("CD56", "CD16", "CD314", "CD226", "CD94", "CD279", "CD69", "Tim3")
+
+supp_v2 <- lapply(adts_manual, function(adt_name){
+  ggplot(data.frame(value = logcounts(altExp(sce_split))[adt_name, ],
+                    before_after = altExp(sce_split)$group,
+                    condition = altExp(sce_split)$condition),
+          aes(x = value, color = condition, linetype = before_after)) +
+         #aes(x = value, color = condition)) +
+    geom_density(alpha = 0.5) +
+    scale_color_manual(values = c("NT-NK" = "gray", "KLRC1.ko-NK" = "blue", "CAR33-NK" = "orange", "CAR33-KLRC1.ko-NK" = "red")) +
+    scale_linetype_manual(values = c("BeforeCoc" = "dashed", "AfterCoc" = "solid")) + 
+    xlab(adt_name) + theme_bw() + 
+    theme(axis.title.x = element_text(size = 10, face="bold"),
+          legend.position = "right")}) 
+
+final_plot <- wrap_plots(supp_v2, nrow = 1) +
+  plot_layout(guides = "collect")
+
+ggsave("figs2_surface_markers_jointBA.pdf", final_plot, width = 19, height = 2.6)
+```
+
+Before and after separate
+
+```{r}
+adts_manual <- c("CD56", "CD16", "CD314", "CD226", "CD94", "CD279", "CD69", "Tim3")
+
+altExp(sce_split)$group <- factor(altExp(sce_split)$group, levels = c("BeforeCoc", "AfterCoc"))
+
+supp_v2 <- lapply(adts_manual, function(adt_name){
+  ggplot(data.frame(value = logcounts(altExp(sce_split))[adt_name, ],
+                    before_after = altExp(sce_split)$group,
+                    condition = altExp(sce_split)$condition),
+          aes(x = value, color = condition)) +
+         #aes(x = value, color = condition)) +
+    geom_density(alpha = 0.5) +
+    scale_color_manual(values = c("NT-NK" = "gray", "KLRC1.ko-NK" = "blue", "CAR33-NK" = "orange", "CAR33-KLRC1.ko-NK" = "red")) +
+    xlab(adt_name) + theme_bw() + facet_wrap(~before_after, nrow=2) +
+    theme(axis.title.x = element_text(size = 10, face="bold"),
+          legend.position = "right")}) 
+
+final_plot <- wrap_plots(supp_v2, nrow = 1) +
+  plot_layout(guides = "collect")
+
+ggsave("figs2_surface_markers_splitBA.pdf", final_plot, width = 19, height = 3.8)
+```
+
+Only before
+
+```{r}
+adts_manual <- c("CD56", "CD16", "CD314", "CD226", "CD94", "CD279", "CD69")
+
+supp_v2 <- lapply(adts_manual, function(adt_name){
+  ggplot(data.frame(value = logcounts(altExp(sce_split))[adt_name, ],
+                    before_after = altExp(sce_split)$group,
+                    condition = altExp(sce_split)$condition) %>%
+           dplyr::filter(before_after == "BeforeCoc"),
+          aes(x = value, color = condition)) +
+         #aes(x = value, color = condition)) +
+    geom_density(alpha = 0.5) +
+    scale_color_manual(values = c("NT-NK" = "gray", "KLRC1.ko-NK" = "blue", "CAR33-NK" = "orange", "CAR33-KLRC1.ko-NK" = "red")) +
+    xlab(adt_name) + theme_bw() + 
+    theme(axis.title.x = element_text(size = 14),
+          axis.text.x = element_text(size = 14),
+          axis.title.y = element_text(size = 14),
+          axis.text.y = element_text(size = 14),
+          legend.text = element_text(size = 14),
+          legend.title = element_blank(),
+          legend.position = "right")}) 
+
+final_plot <- wrap_plots(supp_v2, nrow = 1) +
+  plot_layout(guides = "collect")
+
+ggsave("fig2e.tiff", final_plot, width = 19, height = 2.6)
+ggsave("fig2e.pdf", final_plot, width = 19, height = 2.6)
+```
+
+Only after
+
+```{r}
+adts_manual <- c("CD56", "CD16", "CD314", "CD226", "CD94", "CD279", "CD69", "Tim3")
+
+supp_v2 <- lapply(adts_manual, function(adt_name){
+  ggplot(data.frame(value = logcounts(altExp(sce_split))[adt_name, ],
+                    before_after = altExp(sce_split)$group,
+                    condition = altExp(sce_split)$condition) %>%
+           dplyr::filter(before_after == "AfterCoc"),
+          aes(x = value, color = condition)) +
+         #aes(x = value, color = condition)) +
+    geom_density(alpha = 0.5) +
+    scale_color_manual(values = c("NT-NK" = "gray", "KLRC1.ko-NK" = "blue", "CAR33-NK" = "orange", "CAR33-KLRC1.ko-NK" = "red")) +
+    xlab(adt_name) + theme_bw() + 
+    theme(axis.title.x = element_text(size = 10, face="bold"),
+          legend.position = "right")}) 
+
+final_plot <- wrap_plots(supp_v2, nrow = 1) +
+  plot_layout(guides = "collect")
+
+ggsave("figs2_surface_markers_onlyA.pdf", final_plot, width = 19, height = 2.6)
+```
+
+# Session info
 
 ```{r sessionInfo, cache = 0}
-date()
 sessionInfo()
-
-knitr::knit_exit()
 ```
 

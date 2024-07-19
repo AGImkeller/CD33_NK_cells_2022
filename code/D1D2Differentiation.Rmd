@@ -60,9 +60,7 @@ sce_d1 <- sce_d1_a[,colData(sce_d1_a)$group == "AfterCoc"]
 
 sce_d1 <- runPCA(sce_d1, ncomponents=20)
 sce_d1 <- runTSNE(sce_d1, dimred="PCA")
-```
 
-```{r}
 snn_graph <- buildSNNGraph(sce_d1, k=50, use.dimred='PCA')
 igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
 sce_d1$igraph_lbls <- as.factor(igraph_clusters)
@@ -73,12 +71,19 @@ p1 <- plotTSNE(sce_d1, colour_by="igraph_lbls", other_fields = c("condition")) +
   facet_wrap(~condition) + 
   scale_color_manual(values = c("green", "orange", "purple", "navy", "cyan", "maroon")) +
   theme_bw() + 
-  theme(strip.text.x = element_text(size = 12), legend.position="bottom", legend.text = element_text(size=10)) +
+  theme(strip.text.x = element_text(size = 12),
+        axis.title.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.position="bottom") +
   guides(colour = guide_legend(nrow = 1)) +
   labs(color = "cluster")
 p1
-ggsave("fig5c.tiff", p1, height = 4, width = 4)
-ggsave("fig5c.pdf", p1, height = 4, width = 4)
+ggsave("fig6d.tiff", p1, height = 4, width = 4)
+ggsave("fig6d.pdf", p1, height = 4, width = 4)
 ```
 
 ```{r}
@@ -92,25 +97,18 @@ p2 <- as.data.frame(colData(sce_d1)) %>%
   scale_fill_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
   labs(x = "cluster", y = "condition relative abundance")+ 
   theme_bw() +
-  theme(legend.position="bottom", legend.text = element_text(size=10)) +
+  theme(strip.text.x = element_text(size = 12),
+        axis.title.x = element_text(size = 12),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        legend.title = element_blank(),
+        legend.position="bottom") +
   guides(colour = guide_legend(nrow = 1))
 p2
-ggsave("fig5e.tiff", p2, height = 4, width = 6)
-ggsave("fig5e.pdf", p2, height = 4, width = 6)
-```
-
-```{r}
-m <- scoreMarkers(sce_d1, groups = colData(sce_d1)$igraph_lbls)
-```
-
-```{r}
-as.data.frame(m[1]) %>%
-    arrange(desc(mean.AUC))
-```
-
-```{r}
-as.data.frame(m[2]) %>%
-    arrange(desc(mean.AUC))
+ggsave("fig6f.tiff", p2, height = 4, width = 6)
+ggsave("fig6f.pdf", p2, height = 4, width = 6)
 ```
 
 # Donor 2
@@ -121,9 +119,7 @@ sce_d2 <- sce_d2_a[,colData(sce_d2_a)$group == "AfterCoc"]
 
 sce_d2 <- runPCA(sce_d2, ncomponents=20)
 sce_d2 <- runTSNE(sce_d2, dimred="PCA")
-```
 
-```{r}
 snn_graph <- buildSNNGraph(sce_d2, k=50, use.dimred='PCA')
 igraph_clusters <- igraph::cluster_louvain(snn_graph)$membership
 sce_d2$igraph_lbls <- as.factor(igraph_clusters)
@@ -155,26 +151,20 @@ p4
 ```
 
 ```{r}
-m2 <- scoreMarkers(sce_d2, groups = colData(sce_d2)$igraph_lbls)
-```
-
-```{r}
-as.data.frame(m2[1]) %>%
-    arrange(desc(mean.AUC))
-```
-
-```{r}
-as.data.frame(m[1]) %>%
-    arrange(desc(mean.AUC))
-```
-
-```{r}
-a <- c("TYMS","CCL4","CSF2","XCL1","IFNG","TOP2A","CCL3","MYC","HMGB2","AURKB","GZMA", "FCGR3A", "TNF", "IL3")
-p5 <- plotDots(sce_d1, features = a, group = "igraph_lbls", color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
-  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text=element_text(size=7))
+a <- c("XCL1", "TYMS", "TOP2A", "TNF", "MYC", "IL3", "IFNG", "HMGB2", "GZMA", "FCGR3A", "CSF2", "CCL4", "CCL3", "AURKB")
+p5 <- plotDots(sce_d1, features = rev(a), group = "igraph_lbls", color = c("darkblue", "lightblue", "gray", "yellow", "orange", "darkorange", "red", "darkred")) +
+  theme(axis.title.x = element_text(size = 16),
+        axis.text.x = element_text(size = 16),
+        axis.title.y = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16),
+        legend.position="bottom",
+        legend.box="vertical",
+        legend.margin=margin())
 p5
-ggsave("fig5f.tiff", p5, width = 5, height = 5)
-ggsave("fig5f.pdf", p5, width = 5, height = 5)
+ggsave("fig6e.tiff", p5, width = 7, height = 7)
+ggsave("fig6e.pdf", p5, width = 7, height = 7)
 ```
 
 ```{r}
@@ -188,31 +178,35 @@ p7 <- plotExpression(sce_d1, c("IFNG", "TOP2A", "AURKB"), x = "condition", ncol 
   theme_bw() + 
   scale_color_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
   ylim(0, 8) + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1), strip.text.x = element_text(size = 12)) + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 14), 
+        strip.text.x = element_text(size = 14),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 14),
+        axis.text.y = element_text(size = 14)) +
   labs(color = "condition") 
 
 p8 <- plotExpression(sce_d1_a[,colData(sce_d1_a)$group == "BeforeCoc"], features = c("IFNG", "TOP2A", "AURKB"), x = "condition", ncol = 3, colour_by = "condition") + 
   theme_bw() + 
   scale_color_manual(values = c("#a0a0a3", "#90bff9", "#f2b77d", "#ff8080")) + 
   ylim(0, 8) +
-  theme(axis.text.x=element_blank(), axis.title.x=element_blank(), axis.title.y=element_blank(), strip.text.x = element_text(size = 12)) +
+  theme(axis.text.x=element_blank(), 
+        axis.title.x=element_blank(), 
+        axis.title.y=element_blank(), 
+        strip.text.x = element_text(size = 14), axis.text.y = element_text(size = 14)) +
   labs(color = "condition") 
  
 p9 <- p8 + 
   p7 +
   plot_layout(guides = "collect", ncol = 1, heights = c(1,1)) &
-  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=10))
+  theme(legend.position="bottom", legend.box="vertical", legend.margin=margin(), legend.text = element_text(size=14), legend.title = element_blank())
 p9
-ggsave("fig5g.tiff", p9, width = 6, height = 6)
-ggsave("fig5g.pdf", p9, width = 6, height = 6)
+ggsave("fig6g.tiff", p9, width = 7, height = 7)
+ggsave("fig6g.pdf", p9, width = 7, height = 7)
 ```
 
-# Session
+# Session info
 
 ```{r sessionInfo, cache = 0}
-date()
 sessionInfo()
-
-knitr::knit_exit()
 ```
 
