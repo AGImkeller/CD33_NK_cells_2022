@@ -800,8 +800,7 @@ supp3.4 <- do.call(plot_grid, c(lapply(rownames(logcounts(altExp(sce_split))), f
     theme(axis.title.x = element_text(size = 8, face="bold"))}), ncol = 4))
 ```
 
-
-##  KATHARINA (27.03.2024):
+## Fig2e
 
 Added CD16 in surface marker density plots.
 
